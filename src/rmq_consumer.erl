@@ -179,11 +179,13 @@ handle_info({'EXIT', _OtherPid, _Reason} = Message,
 
    {noreply, State#state{callback_state = NewCallbackState}};
 
-handle_info(Event = {#'basic.deliver'{}, #'amqp_msg'{}},
-            #state{callback = Callback} = State)
+handle_info(Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey}, #'amqp_msg'{
+      payload = Payload, props = #'P_basic'{headers = _Headers}
+   }}, #state{callback = Callback} = State)
                            when is_pid(Callback) ->
 
-   Callback ! {Event, self()},
+   Msg = { {DTag, RKey}, {Payload, _Headers}, self()},
+   Callback ! Msg,
    {noreply, State};
 %% @doc handle incoming messages from rmq
 handle_info(Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = _RKey},

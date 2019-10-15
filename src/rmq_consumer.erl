@@ -305,7 +305,10 @@ check_for_channel(#state{} = State) ->
 connect(Config) ->
    Get = fun
       ({s, X}) ->
-         list_to_binary(proplists:get_value(X, Config));
+         case proplists:get_value(X, Config) of
+            Val when is_list(Val) -> list_to_binary(Val);
+            Bin -> Bin
+         end;
       (X) ->
          proplists:get_value(X, Config) end,
    GetWithDefault = fun(X, Default) ->

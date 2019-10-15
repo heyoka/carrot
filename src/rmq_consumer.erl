@@ -179,7 +179,7 @@ handle_info({'EXIT', _OtherPid, _Reason} = Message,
 
    {noreply, State#state{callback_state = NewCallbackState}};
 
-handle_info(Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey}, #'amqp_msg'{
+handle_info(_Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey}, #'amqp_msg'{
       payload = Payload, props = #'P_basic'{headers = _Headers}
    }}, #state{callback = Callback} = State)
                            when is_pid(Callback) ->
@@ -315,9 +315,8 @@ connect(Config) ->
       end
    end,
    RabbbitHosts = Get(hosts),
-   {A,B,C} = erlang:now(),
-   random:seed(A,B,C),
-   Index = random:uniform(length(RabbbitHosts)),
+   rand:seed(exs1024s),
+   Index = rand:uniform(length(RabbbitHosts)),
    {Host, Port} = lists:nth(Index,RabbbitHosts),
    Connection = amqp_connection:start(#amqp_params_network{
       username = Get({s, user}),

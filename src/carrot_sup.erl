@@ -36,10 +36,10 @@ init([]) ->
 %% Supervisor Definition for rmq_consumer workers
 rmq_sup(SetupName, Config, HostParams) ->
    WorkerConf0 = proplists:get_value(SetupName, Config),
-%%    lager:alert("Worker-Conf0 :~p",[WorkerConf0]),
+%%    io:format("Worker-Conf0 :~p",[WorkerConf0]),
    %% inject host-params to worker-config
    WorkerConf = carrot_util:proplists_merge(WorkerConf0, HostParams),
-%%    lager:alert("Worker-Conf :~p",[WorkerConf]),
+%%    io:format("Worker-Conf :~p",[WorkerConf]),
    {SetupName,
       {rmq_consumer_sup, start_link, [SetupName, WorkerConf]},
       permanent, infinity, supervisor, [rmq_consumer_sup]
@@ -107,11 +107,11 @@ load_bunnies(File) ->
 parse_file(File) ->
    io:format("~n... load bunnies from file : ~p~n~n",[File]),
    {ok, [Conf]} = file:consult(File),
-%%    lager:notice("read file: ~p",[Conf]),
+%%    io:format("read file: ~p",[Conf]),
    Carrot = proplists:get_value(carrot, Conf),
-%%    lager:notice("carrot is: ~p",[Carrot]),
+%%    io:format("carrot is: ~p",[Carrot]),
    Config = proplists:get_value(bunnies, Carrot),
-%%    lager:notice("config is ~p",[Config]),
+%%    io:format("config is ~p",[Config]),
    Names = proplists:get_keys(Config),
    io:format("new names are: ~p~n",[Names]),
    {Config, Names}.

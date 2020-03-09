@@ -55,7 +55,7 @@ start_link() ->
    {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
    {stop, Reason :: term()} | ignore).
 init([]) ->
-   lager:info("~p < ~p > started",[?MODULE, self()]),
+   io:format("~p < ~p > started",[?MODULE, self()]),
    {ok, Pid, _Ref} = rmq_consumer:start_monitor(self(), consumer_config(<<"1.002.eb195daeff594de58a0eaee88cf1190b">>)),
 
    {ok, #state{consumer = Pid}}.
@@ -107,11 +107,11 @@ handle_cast(_Request, State) ->
    {noreply, NewState :: #state{}, timeout() | hibernate} |
    {stop, Reason :: term(), NewState :: #state{}}).
 handle_info({'DOWN', _MonitorRef, process, Consumer, _Info}, #state{consumer = Consumer} = State) ->
-   lager:warning("MQ-Consumer:~p is 'DOWN'",[Consumer]),
+   io:format("MQ-Consumer:~p is 'DOWN'",[Consumer]),
    {noreply, State#state{consumer = undefined}};
 handle_info({_Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = _RKey},
    #'amqp_msg'{payload = Payload, props = #'P_basic'{headers = _Headers}}}, From}, #state{consumer = From}=State) ->
-   lager:debug("** got q-message: ~p from: ~p",[Payload, From]),
+   io:format("** got q-message: ~p from: ~p",[Payload, From]),
    carrot:ack(From, DTag),
    {noreply, State}.
 

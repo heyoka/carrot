@@ -17,17 +17,17 @@ init() ->
 process( {Event = #'basic.deliver'{delivery_tag = _DTag, routing_key = _RKey},
          Msg = #'amqp_msg'{payload = _Msg, props = #'P_basic'{headers = _Headers}}} , #state{} = State) ->
 
-   lager:debug("~p got message to PROCESS ::: ~p ~n ~p",[?MODULE, Event, Msg]),
+   io:format("~p got message to PROCESS ::: ~p ~n ~p",[?MODULE, Event, Msg]),
    {ok, State}.
 
 handle_info({'EXIT', MQPid, Reason}, State ) ->
-   lager:warning("Pid: ~p exited with Reason: ~p",[MQPid, Reason]),
+   io:format("Pid: ~p exited with Reason: ~p",[MQPid, Reason]),
    {ok, State}.
 
 channel_down(State) ->
-   lager:warning("MQ Channel is DOWN, lets do some cleanup: ~p",["yeah"]),
+   io:format("MQ Channel is DOWN, lets do some cleanup: ~p",["yeah"]),
    {ok, State}.
 
 terminate(_Reason, _State) ->
-   lager:debug("~p got terminate message with reason: ~p",[?MODULE, _Reason]),
+   io:format("~p got terminate message with reason: ~p",[?MODULE, _Reason]),
    ok.

@@ -2,7 +2,7 @@
 -module(carrot_amqp).
 -author("Alexander Minichmair").
 
--include_lib("../include/amqp_client.hrl").
+-include_lib("amqp_client.hrl").
 
 %% API
 
@@ -44,21 +44,21 @@ setup(Channel, Config) ->
       XCreateConfig ->  %% declare and bind exchange to exchange1
          XDeclare = to_exchange_declare(XCreateConfig, Type),
          #'exchange.declare_ok'{} = amqp_channel:call(Channel, XDeclare),
-         lager:info("#setup Xchange: ~p",["xchange declared ok"]),
+         io:format("#setup Xchange: ~p",["xchange declared ok"]),
          XBind = to_exchange_bind(XCreateConfig, Type),
          #'exchange.bind_ok'{} = amqp_channel:call(Channel, XBind),
-         lager:info("#setup Xchange: ~p",["xchange bind ok"])
+         io:format("#setup Xchange: ~p",["xchange bind ok"])
    end,
 
    QConfig = proplists:get_value(queue, Setup),
 
-   lager:notice("QConfig is ~p",[QConfig]),
+   io:format("QConfig is ~p",[QConfig]),
 
    %% declare and bind queue to exchange
    QDeclare = to_queue_declare(QConfig, Type),
 
    #'queue.declare_ok'{queue = QName} = amqp_channel:call(Channel, QDeclare),
-   lager:info("#setup Queue: ~p ~n ~p",["queue declared ok", QDeclare]),
+   io:format("#setup Queue: ~p ~n ~p",["queue declared ok", QDeclare]),
    case proplists:get_value(exchange, QConfig) of
       undefined   -> ok;
       _E          -> setup_bindings(Channel, QConfig, Type)
@@ -71,13 +71,13 @@ consume_queue(Channel, Q, Prefetch) ->
       false   ->
          ok;
       true      ->
-         lager:info("Set Prefetch-Count for Channel: ~p",[Prefetch]),
+         io:format("Set Prefetch-Count for Channel: ~p",[Prefetch]),
          #'basic.qos_ok'{} = amqp_channel:call(Channel, #'basic.qos'{prefetch_count = Prefetch})
    end,
    %% actually consume from q
    #'basic.consume_ok'{consumer_tag = Tag} =
       amqp_channel:subscribe(Channel, #'basic.consume'{queue = Q}, self()),
-   lager:info("#setup subscribed to queue : ~p got back tag: ~p~n",[Q, Tag]).
+   io:format("#setup subscribed to queue : ~p got back tag: ~p~n",[Q, Tag]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -93,7 +93,7 @@ setup_bindings(Channel, QueueConfig, Type) ->
    end,
    Bind = fun(QBind) ->
       #'queue.bind_ok'{} = amqp_channel:call(Channel, QBind),
-      lager:debug("#setup Queue: ~p ~n ~n ~p",["queue bind ok", QBind])
+      io:format("#setup Queue: ~p ~n ~n ~p",["queue bind ok", QBind])
       end,
    lists:foreach(Bind, QBindings).
 
@@ -160,7 +160,7 @@ prep_q_bind(temporary, false) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Converts a tuple list of values to a record with name RecName
 to_record(RecName, Properties, Defaults) ->
-%%   lager:notice("old props: ~p",[Properties]),
+%%   io:format("old props: ~p",[Properties]),
    NewProps =
    case proplists:get_value(arguments, Properties) of
       undefined -> Properties;
@@ -169,9 +169,9 @@ to_record(RecName, Properties, Defaults) ->
                                  lists:flatten([{arguments, NewTable}|proplists:delete(arguments, Properties)])
 
    end,
-%%   lager:alert("converted properties: ~p",[NewProps]),
+%%   io:format("converted properties: ~p",[NewProps]),
    Rec = to_record(RecName, carrot_util:proplists_merge(NewProps, Defaults)),
-%%   lager:notice("Record is ~p",[Rec]),
+%%   io:format("Record is ~p",[Rec]),
    Rec.
 to_record(RecName, Properties) ->
    list_to_tuple([RecName|[proplists:get_value(X, Properties, false) ||

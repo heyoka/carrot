@@ -23,8 +23,8 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-   {ok, Config} = application:get_env(carrot, bunnies, {ok, []}),
-   {ok, HostParams} = application:get_env(carrot, broker, {ok, []}),
+   Config = application:get_env(carrot, bunnies, []),
+   HostParams = application:get_env(carrot, broker, []),
 
    SetupNames = proplists:get_keys(Config),
 

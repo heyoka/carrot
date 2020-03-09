@@ -202,7 +202,6 @@ qx_name(Prefix) ->
    Node = binary:replace(NodeBinary, <<"@">>, <<"-">>),
    <<Prefix/binary, <<"_">>/binary, Node/binary>>.
 
-
 to_amqp_table(Table) when is_list(Table) ->
    CFun = fun({Key, Val}) ->
             case Val of

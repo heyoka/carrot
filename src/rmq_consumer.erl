@@ -40,6 +40,7 @@
    channel_ref = undefined:: undefined|reference(),
    spawned_tasks = []:: [{pid(), reference()}],
    config = []:: proplists:proplist(),
+   amqp_config :: term(),
    callback :: atom(),
    callback_state :: term(),
    available = false:: boolean()
@@ -109,7 +110,8 @@ init([Callback, Config]) ->
       false -> {ok, CallbackState} = Callback:init(), {Callback, CallbackState}
    end,
    erlang:send_after(0, self(), connect),
-   {ok, #state{config = Config, callback = Callback1, callback_state = CBState}}.
+   {ok, #state{config = Config, amqp_config = carrot_connect_options:parse(Config),
+      callback = Callback1, callback_state = CBState}}.
 
 -spec handle_cast(term(), state()) -> {noreply, state()}.
 handle_cast(Msg, State) ->
@@ -118,17 +120,23 @@ handle_cast(Msg, State) ->
 
 -spec handle_info(term(), state()) -> {noreply, state()}.
 handle_info(connect, State) ->
-   {Available, Channel, Conn} = check_for_channel(State),
-
-   case Available of
-      true  -> carrot_amqp:setup(Channel, State#state.config);
+   NewState = start_connection(State),
+   case NewState#state.available of
+      true -> carrot_amqp:setup(NewState#state.channel, State#state.config);
       false -> nil
    end,
-   {noreply, State#state{
-      channel = Channel,
-      available = Available,
-      connection = Conn
-   }};
+   {noreply, NewState};
+%%   {Available, Channel, Conn} = check_for_channel(State),
+%%
+%%   case Available of
+%%      true  -> carrot_amqp:setup(Channel, State#state.config);
+%%      false -> nil
+%%   end,
+%%   {noreply, State#state{
+%%      channel = Channel,
+%%      available = Available,
+%%      connection = Conn
+%%   }};
 
 handle_info(stop, State=#state{channel = _Channel}) ->
    lager:notice("stopping rmq_consumer: ~p",[self()]),
@@ -279,58 +287,28 @@ code_change(_OldVsn, State, _Extra) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+start_connection(State = #state{amqp_config = Config}) ->
+   lager:notice("amqp_params: ~p",[lager:pr(Config, ?MODULE)] ),
+   Connection = amqp_connection:start(Config),
+   NewState =
+      case Connection of
+         {ok, Conn} ->
+            Channel = new_channel(Connection),
+            case Channel of
+               {ok, Chan} ->
+                  State#state{connection = Conn, channel = Chan, available = true};
+               Er ->
+                  lager:warning("Error starting channel: ~p",[Er]),
+                  erlang:send_after(100, self(), connect),
+                  State#state{available = false}
+            end;
+         E ->
+            lager:warning("Error starting connection: ~p",[E]),
+            erlang:send_after(100, self(), connect),
+            State#state{available = false}
+      end,
+   NewState.
 
-check_for_channel(#state{} = State) ->
-   Connect = fun() ->
-      case connect(State#state.config) of
-         {{ok, Pid},{ok,Conn}} -> {Pid,Conn};
-         Error -> lager:alert("MQ NOT available: ~p", [Error]), not_available
-      end
-   end,
-   {Channel, Conn} =
-      case State#state.channel of
-                {Pid,Conn0} when is_pid(Pid) -> case is_process_alive(Pid) of
-                                           true -> {Pid, Conn0};
-                                           false -> Connect()
-                                        end;
-                _ -> Connect()
-             end,
-%%    lager:notice("new channelpid is ~p",[Channel]),
-   Available = is_pid(Channel),
-   {Available, Channel, Conn}.
-
-%%%
-%%% connect
-%%%
-connect(Config) ->
-   Get = fun
-      ({s, X}) ->
-         case proplists:get_value(X, Config) of
-            Val when is_list(Val) -> list_to_binary(Val);
-            Bin -> Bin
-         end;
-      (X) ->
-         proplists:get_value(X, Config) end,
-   GetWithDefault = fun(X, Default) ->
-      case Get(X) of
-         undefined -> Default;
-         Value -> Value
-      end
-   end,
-   RabbbitHosts = Get(hosts),
-   rand:seed(exs1024s),
-   Index = rand:uniform(length(RabbbitHosts)),
-   {Host, Port} = lists:nth(Index,RabbbitHosts),
-   Connection = amqp_connection:start(#amqp_params_network{
-      username = Get({s, user}),
-      password = Get({s, pass}),
-      virtual_host = Get({s, vhost}),
-      port = Port,
-      host = Host,
-      heartbeat = GetWithDefault(heartbeat, 80),
-      ssl_options = GetWithDefault(ssl_options, none)
-   }),
-   {new_channel(Connection), Connection}.
 
 new_channel({ok, Connection}) ->
 %%    link(Connection),

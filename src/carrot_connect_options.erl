@@ -38,13 +38,19 @@ parse([{connection_timeout, ConnTimeout} | R], Acc) when is_integer(ConnTimeout)
 parse([{ssl, false} | R], Acc) ->
   parse(R, Acc#{ssl => false});
 parse([{ssl, true} | R], Acc) ->
-  Opts = faxe_config:get_ssl_opts(mqtt),
-  parse(R, Acc#{ssl => true, ssl_opts => Opts});
+  parse(R, Acc#{ssl => true});
+parse([{ssl_opts, Opts} | R], Acc) ->
+  parse(R, Acc#{ssl_opts => Opts});
 parse([_ | R], Acc) ->
   parse(R, Acc).
 
 
 amqp_params(Config) ->
+  SslOpts =
+    case proplists:get_value(ssl, Config) of
+      true -> proplists:get_value(ssl_opts, Config, none);
+      false -> none
+    end,
   #amqp_params_network{
     username = proplists:get_value(user, Config, <<"guest">>),
     password = proplists:get_value(pass, Config, <<"guest">>),
@@ -53,5 +59,5 @@ amqp_params(Config) ->
     host = proplists:get_value(host, Config),
     heartbeat = proplists:get_value(heartbeat, Config, 80),
     connection_timeout = proplists:get_value(connection_timeout, Config, 60000),
-    ssl_options = proplists:get_value(ssl_options, Config, none)
+    ssl_options = SslOpts
   }.

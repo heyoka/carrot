@@ -7,7 +7,11 @@
 -export([start/0, load_bunnies/0, load_bunnies/1, start_monitored_consumer/1]).
 
 %% User API
--export([ack/2, ack_multiple/2, nack/2, nack_multiple/2, reject/2]).
+-export([
+   ack/2, ack_multiple/2,
+   nack/2, nack_multiple/2,
+   reject/2,
+   channel_ack/2, channel_ack_multiple/2]).
 
 
 start() ->
@@ -25,6 +29,11 @@ load_bunnies() ->
    carrot_sup:load_bunnies().
 load_bunnies(File) ->
    carrot_sup:load_bunnies(File).
+
+channel_ack(Channel, Tag) ->
+   rmq_consumer:handle_ack(Tag, Channel).
+channel_ack_multiple(Channel, Tag) ->
+   rmq_consumer:handle_ack_multiple(Tag, Channel).
 
 ack(Consumer, Tag) ->
    Consumer ! {ack, Tag}.

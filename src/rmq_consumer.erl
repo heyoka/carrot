@@ -61,7 +61,7 @@
 -export([
    init/1, terminate/2, code_change/3,
    handle_call/3, handle_cast/2, handle_info/2
-   , start_link/2, start_monitor/2, stop/1]).
+   , start_link/2, start_monitor/2, stop/1, handle_ack/2, handle_ack_multiple/2]).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%% BEHAVIOUR DEFINITION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -189,10 +189,10 @@ handle_info({'EXIT', _OtherPid, _Reason} = Message,
 
 handle_info(_Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey}, #'amqp_msg'{
       payload = Payload, props = #'P_basic'{headers = _Headers}
-   }}, #state{callback = Callback} = State)
+   }}, #state{callback = Callback, channel = Channel} = State)
                            when is_pid(Callback) ->
 
-   Msg = { {DTag, RKey}, {Payload, _Headers}, self()},
+   Msg = { {DTag, RKey}, {Payload, _Headers}, Channel},
    Callback ! Msg,
    {noreply, State};
 %% @doc handle incoming messages from rmq
@@ -225,13 +225,11 @@ handle_info({'basic.qos_ok', {}}, State) ->
    {noreply, State}
 ;
 handle_info({ack, Tag}, State) ->
-   amqp_channel:call(State#state.channel, #'basic.ack'{delivery_tag = Tag, multiple = false}),
-   lager:debug("acked single Tag: ~p",[Tag]),
+   handle_ack(Tag, State#state.channel),
    {noreply, State}
 ;
 handle_info({ack, multiple, Tag}, State) ->
-   amqp_channel:call(State#state.channel, #'basic.ack'{delivery_tag = Tag, multiple = true}),
-   lager:debug("acked multiple till Tag: ~p",[Tag]),
+   handle_ack_multiple(Tag, State#state.channel),
    {noreply, State}
 ;
 handle_info({nack, Tag}, State) ->
@@ -332,3 +330,15 @@ is_callable(Arg, Fun, Artity) ->
       true -> false;
       false -> erlang:function_exported(Arg, Fun, Artity)
    end.
+
+%%%
+handle_ack(Tag, Channel) ->
+   Res = amqp_channel:call(Channel, #'basic.ack'{delivery_tag = Tag, multiple = false}),
+   lager:debug("acked single Tag: ~p",[Tag]),
+   Res
+.
+handle_ack_multiple(Tag, Channel) ->
+   Res = amqp_channel:call(Channel, #'basic.ack'{delivery_tag = Tag, multiple = true}),
+   lager:debug("acked multiple till Tag: ~p",[Tag]),
+   Res
+.

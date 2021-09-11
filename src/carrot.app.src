@@ -3,14 +3,14 @@
   {description, "bunny eats a lot of carrots"},
   {vsn, "1"},
   {registered, []},
-  {applications, [
-                  kernel,
-                  stdlib,
-                  crypto,
-                  rabbit_common,
-                  amqp_client,
-                  lager
-                 ]},
+   {applications, [
+     kernel,
+     stdlib,
+     lager,
+     crypto,
+     rabbit_common,
+     amqp_client
+   ]},
   {mod, { carrot_app, []}},
   {env, []}
  ]}.

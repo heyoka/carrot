@@ -124,7 +124,7 @@ handle_cast(Msg, State) ->
 handle_info(connect, State) ->
    NewState = start_connection(State),
    case NewState#state.available of
-      true -> carrot_amqp:setup(NewState#state.channel, State#state.config);
+      true -> carrot_amqp:setup(NewState#state.channel, State#state.config, State#state.confirm);
       false -> nil
    end,
    {noreply, NewState};
@@ -293,7 +293,7 @@ start_connection(State = #state{amqp_config = Config, confirm = UseConfirm}) ->
    NewState =
       case Connection of
          {ok, Conn} ->
-            Channel = new_channel(Connection, UseConfirm),
+            Channel = new_channel(Connection),
             case Channel of
                {ok, Chan} ->
                   State#state{connection = Conn, channel = Chan, available = true};
@@ -310,24 +310,17 @@ start_connection(State = #state{amqp_config = Config, confirm = UseConfirm}) ->
    NewState.
 
 
-new_channel({ok, Connection}, UseConfirm) ->
+new_channel({ok, Connection}) ->
 %%    link(Connection),
-   configure_channel(amqp_connection:open_channel(Connection), UseConfirm);
+   configure_channel(amqp_connection:open_channel(Connection));
 
-new_channel(Error, _Confirm) ->
+new_channel(Error) ->
    Error.
 
-configure_channel({ok, Channel}, false) ->
+configure_channel({ok, Channel}) ->
    link(Channel),
    {ok, Channel};
-configure_channel({ok, Channel}, true) ->
-   link(Channel), %erlang:monitor(process, Channel),
-   case amqp_channel:call(Channel, #'confirm.select'{}) of
-      {'confirm.select_ok'} -> {ok, Channel};
-      Error -> lager:warning("Could not configure channel: ~p", [Error]), Error
-   end;
-
-configure_channel(Error, _UseConfirm) ->
+configure_channel(Error) ->
    Error.
 
 is_callable(Arg, Fun, Artity) ->

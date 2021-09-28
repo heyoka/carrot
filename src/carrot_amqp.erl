@@ -7,7 +7,7 @@
 %% API
 
 
--export([setup/2]).
+-export([setup/3]).
 
 %%% amqp msg default definitions
 
@@ -34,7 +34,7 @@
 
 
 %% setup exchange, queue, bind exchange queue, setup prefetch and consume from the queue
-setup(Channel, Config) ->
+setup(Channel, Config, UseAck) ->
 
    Setup = proplists:get_value(setup, Config),
    Type = proplists:get_value(setup_type, Config),
@@ -63,9 +63,9 @@ setup(Channel, Config) ->
       undefined   -> ok;
       _E          -> setup_bindings(Channel, QConfig, Type)
    end,
-   consume_queue(Channel, QName, proplists:get_value(prefetch_count, Config, 0)).
+   consume_queue(Channel, QName, proplists:get_value(prefetch_count, Config, 0), UseAck).
 
-consume_queue(Channel, Q, Prefetch) ->
+consume_queue(Channel, Q, Prefetch, UseAck) ->
    %% set prefetch count if any
    case Prefetch > 0 of
       false   ->
@@ -76,7 +76,7 @@ consume_queue(Channel, Q, Prefetch) ->
    end,
    %% actually consume from q
    #'basic.consume_ok'{consumer_tag = Tag} =
-      amqp_channel:subscribe(Channel, #'basic.consume'{queue = Q}, self()),
+      amqp_channel:subscribe(Channel, #'basic.consume'{queue = Q, no_ack = not UseAck}, self()),
    io:format("#setup subscribed to queue : ~p got back tag: ~p~n",[Q, Tag]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

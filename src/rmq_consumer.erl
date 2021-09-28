@@ -43,7 +43,8 @@
    amqp_config :: term(),
    callback :: atom(),
    callback_state :: term(),
-   available = false:: boolean()
+   available = false:: boolean(),
+   confirm = true :: boolean()
 }).
 
 -type state():: #state{}.
@@ -104,6 +105,7 @@ start_monitor(Callback, Config) ->
 -spec init(proplists:proplist()) -> {ok, state()}.
 init([Callback, Config]) ->
    process_flag(trap_exit, true),
+   Confirm = proplists:get_value(confirm, Config, true),
    {Callback1, CBState} =
    case is_pid(Callback) of
       true  -> {Callback, undefined};
@@ -111,7 +113,7 @@ init([Callback, Config]) ->
    end,
    erlang:send_after(0, self(), connect),
    {ok, #state{config = Config, amqp_config = carrot_connect_options:parse(Config),
-      callback = Callback1, callback_state = CBState}}.
+      callback = Callback1, callback_state = CBState, confirm = Confirm}}.
 
 -spec handle_cast(term(), state()) -> {noreply, state()}.
 handle_cast(Msg, State) ->
@@ -285,10 +287,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-start_connection(State = #state{amqp_config = Config}) ->
+start_connection(State = #state{amqp_config = Config, confirm = UseConfirm}) ->
    lager:notice("amqp_params: ~p",[lager:pr(Config, ?MODULE)] ),
    Connection = amqp_connection:start(Config),
-   UseConfirm = proplists:get_value(confirm, Config, true),
    NewState =
       case Connection of
          {ok, Conn} ->

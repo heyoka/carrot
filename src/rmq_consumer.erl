@@ -318,7 +318,8 @@ new_channel(Error, _Confirm) ->
    Error.
 
 configure_channel({ok, Channel}, false) ->
-   link(Channel);
+   link(Channel),
+   {ok, Channel};
 configure_channel({ok, Channel}, true) ->
    link(Channel), %erlang:monitor(process, Channel),
    case amqp_channel:call(Channel, #'confirm.select'{}) of

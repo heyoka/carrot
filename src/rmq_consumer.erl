@@ -288,10 +288,11 @@ code_change(_OldVsn, State, _Extra) ->
 start_connection(State = #state{amqp_config = Config}) ->
    lager:notice("amqp_params: ~p",[lager:pr(Config, ?MODULE)] ),
    Connection = amqp_connection:start(Config),
+   UseConfirm = proplists:get_value(confirm, Config, true),
    NewState =
       case Connection of
          {ok, Conn} ->
-            Channel = new_channel(Connection),
+            Channel = new_channel(Connection, UseConfirm),
             case Channel of
                {ok, Chan} ->
                   State#state{connection = Conn, channel = Chan, available = true};
@@ -308,21 +309,23 @@ start_connection(State = #state{amqp_config = Config}) ->
    NewState.
 
 
-new_channel({ok, Connection}) ->
+new_channel({ok, Connection}, UseConfirm) ->
 %%    link(Connection),
-   configure_channel(amqp_connection:open_channel(Connection));
+   configure_channel(amqp_connection:open_channel(Connection), UseConfirm);
 
-new_channel(Error) ->
+new_channel(Error, _Confirm) ->
    Error.
 
-configure_channel({ok, Channel}) ->
+configure_channel({ok, Channel}, false) ->
+   link(Channel);
+configure_channel({ok, Channel}, true) ->
    link(Channel), %erlang:monitor(process, Channel),
    case amqp_channel:call(Channel, #'confirm.select'{}) of
       {'confirm.select_ok'} -> {ok, Channel};
       Error -> lager:warning("Could not configure channel: ~p", [Error]), Error
    end;
 
-configure_channel(Error) ->
+configure_channel(Error, _UseConfirm) ->
    Error.
 
 is_callable(Arg, Fun, Artity) ->

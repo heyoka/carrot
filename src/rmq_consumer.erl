@@ -44,7 +44,8 @@
    callback :: atom(),
    callback_state :: term(),
    available = false:: boolean(),
-   confirm = true :: boolean()
+   confirm = true :: boolean(),
+   last_dtag = 0
 }).
 
 -type state():: #state{}.
@@ -190,16 +191,15 @@ handle_info({'EXIT', _OtherPid, _Reason} = Message,
    {noreply, State#state{callback_state = NewCallbackState}};
 
 handle_info(_Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey}, #'amqp_msg'{
-      payload = Payload, props = #'P_basic'{headers = _Headers}
+      payload = Payload, props = #'P_basic'{headers = Headers, correlation_id = CorrId}
    }}, #state{callback = Callback, channel = Channel} = State)
                            when is_pid(Callback) ->
-
-   Msg = { {DTag, RKey}, {Payload, _Headers}, Channel},
+   Msg = { {DTag, RKey}, {Payload, CorrId, Headers}, Channel},
    Callback ! Msg,
-   {noreply, State};
+   {noreply, State#state{last_dtag = DTag}};
 %% @doc handle incoming messages from rmq
 handle_info(Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = _RKey},
-   #'amqp_msg'{payload = _Msg, props = #'P_basic'{headers = _Headers}}},
+   #'amqp_msg'{payload = _Msg, props = #'P_basic'{headers = _Headers, correlation_id = _CorrId}}},
     #state{callback = Callback, callback_state = CState} = State)    ->
 
    NewCallbackState =
@@ -226,10 +226,18 @@ handle_info({'basic.qos_ok', {}}, State) ->
    lager:debug("got handle_info basic.qos_ok for Channel: ~p",[State#state.channel]),
    {noreply, State}
 ;
+handle_info({ack, Tag}, State=#state{last_dtag = LastTag}) when Tag > LastTag ->
+   lager:notice("acked Tag > than last_tag seen on this channel"),
+   %% nope
+   {noreply, State};
 handle_info({ack, Tag}, State) ->
    handle_ack(Tag, State#state.channel),
    {noreply, State}
 ;
+handle_info({ack, multiple, Tag}, State=#state{last_dtag = LastTag}) when Tag > LastTag ->
+   lager:notice("acked Tag > than last_tag seen on this channel"),
+   %% nope
+   {noreply, State};
 handle_info({ack, multiple, Tag}, State) ->
    handle_ack_multiple(Tag, State#state.channel),
    {noreply, State}
@@ -246,7 +254,7 @@ handle_info({nack, multiple, Tag}, State) ->
 ;
 handle_info({reject, Tag}, State) ->
    amqp_channel:call(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = false}),
-   lager:debug("nacked multiple till Tag: ~p",[Tag]),
+   lager:debug("reject Tag: ~p",[Tag]),
    {noreply, State}
 ;
 handle_info(Msg, State) ->
@@ -288,8 +296,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 start_connection(State = #state{amqp_config = Config}) ->
-   lager:notice("amqp_params: ~p",[lager:pr(Config, ?MODULE)] ),
-   Connection = amqp_connection:start(Config),
+%%   lager:info("amqp_params: ~p",[lager:pr(Config, ?MODULE)] ),
+   Connection = maybe_start_connection(State),
    NewState =
       case Connection of
          {ok, Conn} ->
@@ -332,11 +340,15 @@ is_callable(Arg, Fun, Artity) ->
 %%%
 handle_ack(Tag, Channel) ->
    Res = amqp_channel:call(Channel, #'basic.ack'{delivery_tag = Tag, multiple = false}),
-   lager:debug("acked single Tag: ~p",[Tag]),
    Res
 .
 handle_ack_multiple(Tag, Channel) ->
    Res = amqp_channel:call(Channel, #'basic.ack'{delivery_tag = Tag, multiple = true}),
-   lager:debug("acked multiple till Tag: ~p",[Tag]),
    Res
 .
+
+maybe_start_connection(#state{connection = Conn, amqp_config = Config}) ->
+   case is_pid(Conn) andalso is_process_alive(Conn) of
+      true -> {ok, Conn};
+      false -> amqp_connection:start(Config)
+   end.

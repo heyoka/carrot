@@ -273,7 +273,6 @@ terminate(Reason, #state{
                         channel = Channel,
                         connection = Conn}) ->
 
-   lager:notice("~p ~p terminating with reason: ~p",[?MODULE, self(), Reason]),
    catch amqp_channel:close(Channel),
    catch amqp_connection:close(Conn),
    case is_pid(Callback) of

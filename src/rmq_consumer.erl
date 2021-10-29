@@ -141,8 +141,11 @@ handle_info(connect, State) ->
 %%      connection = Conn
 %%   }};
 
-handle_info(stop, State=#state{channel = _Channel}) ->
+handle_info(stop, State=#state{channel = Channel, connection = Conn}) ->
    lager:notice("stopping rmq_consumer: ~p",[self()]),
+   catch(unlink(Channel)),
+   amqp_channel:close(Channel),
+   amqp_connection:close(Conn),
    {stop, shutdown, State};
 
 handle_info( {'DOWN', _Ref, process, _Pid, _Reason} = Req, State=#state{callback = Callback, callback_state = CBState}) ->

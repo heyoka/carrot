@@ -2,7 +2,7 @@
 -module(carrot_amqp).
 -author("Alexander Minichmair").
 
--include_lib("amqp_client.hrl").
+-include_lib("amqp_client/include/amqp_client.hrl").
 
 %% API
 

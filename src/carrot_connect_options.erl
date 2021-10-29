@@ -47,7 +47,7 @@ parse([_ | R], Acc) ->
 
 amqp_params(Config) ->
   SslOpts =
-    case proplists:get_value(ssl, Config) of
+    case proplists:get_value(ssl, Config, false) of
       true -> proplists:get_value(ssl_opts, Config, none);
       false -> none
     end,

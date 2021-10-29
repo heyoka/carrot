@@ -4,7 +4,7 @@
 
 -behaviour(rmq_consumer).
 
--include("../include/amqp_client.hrl").
+-include_lib("amqp_client/include/amqp_client.hrl").
 %% API
 -export([process/2, init/0, terminate/2, handle_info/2, channel_down/1]).
 

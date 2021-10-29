@@ -29,7 +29,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Required Types.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--include_lib("../include/amqp_client.hrl").
+-include_lib("amqp_client/include/amqp_client.hrl").
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Types.
@@ -141,13 +141,13 @@ handle_info(connect, State) ->
 %%      connection = Conn
 %%   }};
 
-handle_info(stop, State=#state{channel = Channel, connection = Conn}) ->
+handle_info(stop, State=#state{}) ->
    lager:notice("stopping rmq_consumer: ~p",[self()]),
-   catch(unlink(Channel)),
-   amqp_channel:close(Channel),
-   amqp_connection:close(Conn),
    {stop, shutdown, State};
 
+handle_info( {'DOWN', _Ref, process, Conn, Reason}, State=#state{connection = Conn}) ->
+   lager:notice("MQ connection is DOWN: ~p", [Reason]),
+   {noreply, State};
 handle_info( {'DOWN', _Ref, process, _Pid, _Reason} = Req, State=#state{callback = Callback, callback_state = CBState}) ->
 %%   lager:alert("MQ channel is DOWN: ~p", [Reason]),
    NewCallbackState =
@@ -208,13 +208,13 @@ handle_info(Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = _RKey},
    NewCallbackState =
    case Callback:process(Event, CState) of
       {ok, NewState}                -> %lager:info("OK processing queue-message: ~p",[Event]),
-         amqp_channel:call(State#state.channel, #'basic.ack'{delivery_tag = DTag}), NewState;
+         amqp_channel:cast(State#state.channel, #'basic.ack'{delivery_tag = DTag}), NewState;
 
       {ok, noack, NewState}       ->
          NewState;
 
       {error, _Error, NewState}     -> lager:error("Error when processing queue-message: ~p",[_Error]),
-         amqp_channel:call(State#state.channel,
+         amqp_channel:cast(State#state.channel,
             #'basic.nack'{delivery_tag = DTag, requeue = true, multiple = false}),
          NewState
 
@@ -251,12 +251,12 @@ handle_info({nack, Tag}, State) ->
    {noreply, State}
 ;
 handle_info({nack, multiple, Tag}, State) ->
-   amqp_channel:call(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = true, requeue = true}),
+   amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = true, requeue = true}),
    lager:debug("nacked multiple till Tag: ~p",[Tag]),
    {noreply, State}
 ;
 handle_info({reject, Tag}, State) ->
-   amqp_channel:call(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = false}),
+   amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = false}),
    lager:debug("reject Tag: ~p",[Tag]),
    {noreply, State}
 ;
@@ -341,11 +341,11 @@ is_callable(Arg, Fun, Artity) ->
 
 %%%
 handle_ack(Tag, Channel) ->
-   Res = amqp_channel:call(Channel, #'basic.ack'{delivery_tag = Tag, multiple = false}),
+   Res = amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = Tag, multiple = false}),
    Res
 .
 handle_ack_multiple(Tag, Channel) ->
-   Res = amqp_channel:call(Channel, #'basic.ack'{delivery_tag = Tag, multiple = true}),
+   Res = amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = Tag, multiple = true}),
    Res
 .
 
@@ -354,5 +354,9 @@ maybe_start_connection(#state{connection = Conn, amqp_config = Config}) ->
       true ->
          lager:notice("connection still alive"),
          {ok, Conn};
-      false -> amqp_connection:start(Config)
+      false ->
+         case amqp_connection:start(Config) of
+            {ok, NewConn} = Res -> erlang:monitor(process, NewConn), Res;
+            Other -> Other
+         end
    end.

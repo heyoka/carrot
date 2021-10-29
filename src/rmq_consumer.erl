@@ -348,6 +348,8 @@ handle_ack_multiple(Tag, Channel) ->
 
 maybe_start_connection(#state{connection = Conn, amqp_config = Config}) ->
    case is_pid(Conn) andalso is_process_alive(Conn) of
-      true -> {ok, Conn};
+      true ->
+         lager:notice("connection still alive"),
+         {ok, Conn};
       false -> amqp_connection:start(Config)
    end.

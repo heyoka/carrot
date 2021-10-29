@@ -275,7 +275,7 @@ terminate(Reason, #state{
                         callback_state = CBState,
                         channel = Channel,
                         connection = Conn}) ->
-
+   lager:info("~p is terminating with reason: ~p",[?MODULE, Reason]),
    catch amqp_channel:close(Channel),
    catch amqp_connection:close(Conn),
    case is_pid(Callback) of

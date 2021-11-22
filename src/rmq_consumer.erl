@@ -193,10 +193,14 @@ handle_info({'EXIT', _OtherPid, _Reason} = Message,
 
    {noreply, State#state{callback_state = NewCallbackState}};
 
-handle_info(_Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey}, #'amqp_msg'{
+handle_info(_Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey, redelivered = Redelivered}, #'amqp_msg'{
       payload = Payload, props = #'P_basic'{headers = Headers, correlation_id = CorrId}
    }}, #state{callback = Callback, channel = Channel} = State)
                            when is_pid(Callback) ->
+   case Redelivered of
+      true -> lager:notice("msg redelivered: ~p",[CorrId]);
+      false -> ok
+   end,
    Msg = { {DTag, RKey}, {Payload, CorrId, Headers}, Channel},
    Callback ! Msg,
    {noreply, State#state{last_dtag = DTag}};

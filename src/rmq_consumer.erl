@@ -198,7 +198,7 @@ handle_info(_Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey, 
    }}, #state{callback = Callback, channel = Channel} = State)
                            when is_pid(Callback) ->
    case Redelivered of
-      true -> lager:notice("msg redelivered: ~p",[CorrId]);
+      true -> lager:info("msg redelivered: ~p",[CorrId]);
       false -> ok
    end,
    Msg = { {DTag, RKey}, {Payload, CorrId, Headers}, Channel},

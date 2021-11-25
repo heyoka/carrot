@@ -52,7 +52,7 @@ setup(Channel, Config, UseAck) ->
 
    QConfig = proplists:get_value(queue, Setup),
 
-   io:format("QConfig is ~p",[QConfig]),
+%%   io:format("QConfig is ~p",[QConfig]),
 
    %% declare and bind queue to exchange
    QDeclare = to_queue_declare(QConfig, Type),
@@ -63,9 +63,10 @@ setup(Channel, Config, UseAck) ->
       undefined   -> ok;
       _E          -> setup_bindings(Channel, QConfig, Type)
    end,
-   consume_queue(Channel, QName, proplists:get_value(prefetch_count, Config, 0), UseAck).
+   ConsumerTag = proplists:get_value(consumer_tag, Config, <<"">>),
+   consume_queue(Channel, QName, proplists:get_value(prefetch_count, Config, 0), ConsumerTag, UseAck).
 
-consume_queue(Channel, Q, Prefetch, UseAck) ->
+consume_queue(Channel, Q, Prefetch, CTag, UseAck) ->
    %% set prefetch count if any
    case Prefetch > 0 of
       false   ->
@@ -76,7 +77,7 @@ consume_queue(Channel, Q, Prefetch, UseAck) ->
    end,
    %% actually consume from q
    #'basic.consume_ok'{consumer_tag = Tag} =
-      amqp_channel:subscribe(Channel, #'basic.consume'{queue = Q, no_ack = not UseAck}, self()),
+      amqp_channel:subscribe(Channel, #'basic.consume'{queue = Q, consumer_tag = CTag, no_ack = not UseAck}, self()),
    io:format("#setup subscribed to queue : ~p got back tag: ~p~n",[Q, Tag]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

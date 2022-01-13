@@ -6,9 +6,35 @@
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 %% API
--export([process/2, init/0, terminate/2, handle_info/2, channel_down/1]).
+-export([process/2, init/0, terminate/2, handle_info/2, channel_down/1, publish/0]).
 
 -record(state, {}).
+
+publish() ->
+   Opts = #{
+      host => "10.14.204.28",
+      port => 5672,
+      ssl => false,
+      user => <<"miae">>,
+      pass => <<"tgw2019">>,
+      vhost => <<"/">>,
+      exchange => <<"x_lm_fanout">>,
+
+      persistent => true,
+      safe_mode => false
+      },
+
+   {ok, Publisher} = rmq_publisher:start(undefined, Opts),
+%%   timer:sleep(5000),
+   Exchange = <<"x_lm_fanout">>,
+   Key = <<"my.very.special.route">>,
+   Payload = <<"does not matter so much">>,
+   Args = [],
+   Publisher ! {deliver, Exchange, Key, Payload, Args},
+   timer:sleep(5000),
+   Publisher ! stop.
+
+
 
 init() ->
 %%   rmq_test_server:start_link(),

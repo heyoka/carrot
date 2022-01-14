@@ -68,7 +68,7 @@ init([Queue, Config]) ->
   SafeMode = maps:get(safe_mode, Config, false),
   DeliveryMode = case maps:get(persistent, Config, false) of true -> 2; false -> 1 end,
   MemQ = case Queue of undefined -> memory_queue:new(); _ -> undefined end,
-%%   lager:info("adaptive interval: ~p",[lager:pr(AdaptInt, adaptive_interval)]),
+%%   logger:info("adaptive interval: ~p",[logger:pr(AdaptInt, adaptive_interval)]),
   {ok, #state{
     reconnector = Reconnector1,
     queue = Queue,
@@ -80,14 +80,14 @@ init([Queue, Config]) ->
 
 -spec handle_cast(term(), state()) -> {noreply, state()}.
 handle_cast(Msg, State) ->
-  lager:warning("Invalid cast: ~p in ~p", [Msg, ?MODULE]),
+  logger:warning("Invalid cast: ~p in ~p", [Msg, ?MODULE]),
   {noreply, State}.
 
 %%%%%%%%%%%%%%%%%%%
 
 -spec handle_info(term(), state()) -> {noreply, state()}.
 handle_info(connect, State) ->
-  lager:notice("[~p] connect to rmq",[?MODULE]),
+  logger:notice("[~p] connect to rmq",[?MODULE]),
   NewState = start_connection(State),
   case NewState#state.available of
     true ->
@@ -97,10 +97,10 @@ handle_info(connect, State) ->
 
 
 handle_info( {'DOWN', _Ref, process, Conn, _Reason} = _Req, State=#state{connection = Conn}) ->
-  lager:debug("RMQ Connection down, waiting for EXIT on channel ..."),
+  logger:debug("RMQ Connection down, waiting for EXIT on channel ..."),
   {noreply, State};
 handle_info({'EXIT', MQPid, Reason}, State=#state{channel = MQPid, reconnector = Recon} ) ->
-  lager:notice("MQ channel DIED: ~p", [Reason]),
+  logger:notice("MQ channel DIED: ~p", [Reason]),
   {ok, Reconnector} = backoff:execute(Recon, connect),
   {noreply, State#state{
     reconnector = Reconnector,
@@ -112,7 +112,7 @@ handle_info({'EXIT', MQPid, Reason}, State=#state{channel = MQPid, reconnector =
 
 handle_info({deliver, Exchange, Key, Payload, Args} = M, State = #state{channel = Ch}) ->
   Avail = is_pid(Ch) andalso erlang:is_process_alive(Ch),
-  lager:notice("deliver: ~p when avail: ~p",[M, Avail]),
+  logger:notice("deliver: ~p when avail: ~p",[M, Avail]),
   NewState = deliver({Exchange, Key, Payload, Args}, 1, State#state{available = Avail}),
   {noreply, NewState};
 
@@ -124,63 +124,63 @@ handle_info({deliver, Exchange, Key, Payload, Args} = M, State = #state{channel 
 %% this function will release the given leases (delivery_tag(s)) in acking the stored esq-receipts, if in safe_mode
 %% @end
 handle_info(#'basic.ack'{}=Ack, State = #state{safe_mode = false}) ->
-  lager:notice("rabbit acked: ~p", [Ack]),
+  logger:notice("rabbit acked: ~p", [Ack]),
   {noreply, State};
 handle_info(#'basic.ack'{delivery_tag = DTag, multiple = Multiple},
     State = #state{queue = _Q, pending_acks = Pending}) ->
   Tags =
     case Multiple of
-      true -> lager:warning("RabbitMQ confirmed MULTIPLE Tags till ~p",[DTag]),
+      true -> logger:warning("RabbitMQ confirmed MULTIPLE Tags till ~p",[DTag]),
         lists:seq(State#state.last_confirmed_dtag + 1, DTag);
-      false -> lager:notice("RabbitMQ confirmed Tag ~p",[DTag]),
+      false -> logger:notice("RabbitMQ confirmed Tag ~p",[DTag]),
         [DTag]
     end,
-   lager:notice("new pending: ~p",[maps:without(Tags, Pending)]),
+   logger:notice("new pending: ~p",[maps:without(Tags, Pending)]),
   {noreply, State#state{last_confirmed_dtag = DTag, pending_acks = maps:without(Tags, Pending)}};
 
 handle_info(#'basic.return'{reply_text = RText, routing_key = RKey}, State) ->
-  lager:info("Rabbit returned message: ~p",[{RText, RKey}]),
+  logger:info("Rabbit returned message: ~p",[{RText, RKey}]),
   {noreply, State};
 
 handle_info(#'basic.nack'{delivery_tag = _DTag, multiple = _Multiple}, State=#state{config = AmqpParams}) ->
   Host = proplists:get_value(host, AmqpParams, <<"unknown">>),
-  lager:warning("Rabbit at ~p nacked message: ~p",[Host, {_DTag}]),
+  logger:warning("Rabbit at ~p nacked message: ~p",[Host, {_DTag}]),
   {noreply, State};
 
 handle_info(#'channel.flow'{}, State) ->
-  lager:warning("AMQP channel in flow control: ~p",[State#state.channel]),
+  logger:warning("AMQP channel in flow control: ~p",[State#state.channel]),
   {noreply, State};
 
 handle_info(#'channel.flow_ok'{}, State) ->
-  lager:info("AMQP channel released flow control: ~p",[State#state.channel]),
+  logger:info("AMQP channel released flow control: ~p",[State#state.channel]),
   {noreply, State};
 
 handle_info(#'connection.blocked'{}, State) ->
-  lager:warning("Rabbit blocked Connection: ~p",[State#state.connection]),
+  logger:warning("Rabbit blocked Connection: ~p",[State#state.connection]),
   {noreply, State#state{available = false}};
 
 handle_info(#'connection.unblocked'{}, State = #state{deq_timer_ref = T}) ->
-  lager:warning("Rabbit unblocked Connection: ~p",[State#state.connection]),
+  logger:warning("Rabbit unblocked Connection: ~p",[State#state.connection]),
   catch (erlang:cancel_timer(T)),
   {noreply, State#state{available = true}};
 
 handle_info(report_pendinglist_length, #state{pending_acks = P} = State) ->
-  lager:notice("Bunny-Worker PendingList-length: ~p", [{self(), length(P)}]),
+  logger:notice("Bunny-Worker PendingList-length: ~p", [{self(), length(P)}]),
   {noreply, State};
 handle_info(stop, State) ->
   {stop, normal, State};
 handle_info(Msg, State = #state{channel = Chan}) ->
-  lager:notice("Bunny-Worker got unexpected msg: ~p, my chan is :~p", [Msg, Chan]),
+  logger:notice("Bunny-Worker got unexpected msg: ~p, my chan is :~p", [Msg, Chan]),
   {noreply, State}.
 
 handle_call(Req, _From, State) ->
-  lager:notice("Invalid request: ~p", [Req]),
+  logger:notice("Invalid request: ~p", [Req]),
   {reply, invalid_request, State}.
 
 
 -spec terminate(atom(), state()) -> ok.
 terminate(Reason, #state{channel = Channel, connection = Conn} = State) ->
-  lager:notice("~p ~p terminating with reason: ~p",[?MODULE, self(), Reason]),
+  logger:notice("~p ~p terminating with reason: ~p",[?MODULE, self(), Reason]),
   catch(close(Channel, Conn, State))
 .
 
@@ -204,11 +204,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%    case esq:deq(Q) of
 %%      [] ->
 %%        {NewIntervalM, NewAdaptIntM} = adaptive_interval:in(miss, AdaptInt),
-%%%%            lager:notice("q miss, new int: ~p", [lager:pr(NewAdaptIntM, adaptive_interval)]),
+%%%%            logger:notice("q miss, new int: ~p", [logger:pr(NewAdaptIntM, adaptive_interval)]),
 %%        State#state{adaptive_interval = NewAdaptIntM, deq_interval = NewIntervalM};
 %%      [#{payload := Payload, receipt := Receipt}] ->
 %%        {NewIntervalH, NewAdaptIntH} = adaptive_interval:in(hit, AdaptInt),
-%%%%            lager:notice("q hit, new int: ~p", [lager:pr(NewAdaptIntH, adaptive_interval)]),
+%%%%            logger:notice("q hit, new int: ~p", [logger:pr(NewAdaptIntH, adaptive_interval)]),
 %%        deliver(Payload, Receipt, State#state{deq_interval = NewIntervalH, adaptive_interval = NewAdaptIntH})
 %%    end,
 %%  maybe_start_deq_timer(NewState).
@@ -216,7 +216,7 @@ code_change(_OldVsn, State, _Extra) ->
 deliver({_Exchange, _Key, _Payload, _Args}, _QReceipt, State = #state{available = false, mem_q = undefined}) ->
   State;
 deliver({_Exchange, _Key, _Payload, _Args} = M, _QReceipt, State = #state{available = false, mem_q = Q}) ->
-  lager:warning("deliver, when not available!"),
+  logger:warning("deliver, when not available!"),
   NewQ = memory_queue:enq(M, Q),
   State#state{mem_q = NewQ};
 deliver({Exchange, Key, Payload, Args}, QReceipt, State = #state{channel = Channel, delivery_mode = DeliveryMode}) ->
@@ -232,20 +232,20 @@ deliver({Exchange, Key, Payload, Args}, QReceipt, State = #state{channel = Chann
         case State#state.safe_mode of
           true ->
             PenList = maps:put(NextSeqNo, QReceipt, State#state.pending_acks),
-%%            lager:info("put pending tag: ~p", [NextSeqNo]),
+%%            logger:info("put pending tag: ~p", [NextSeqNo]),
             State#state{pending_acks = PenList};
           false ->
             State
         end;
       Error ->
-        lager:warning("error when calling channel : ~p", [Error]),
+        logger:warning("error when calling channel : ~p", [Error]),
         State
     end,
   NewState.
 
 maybe_redeliver(S = #state{mem_q = Q, queue = undefined}) ->
   {Items, NewQ} = memory_queue:to_list_reset(Q),
-  lager:info("redeliver: ~p",[Items]),
+  logger:info("redeliver: ~p",[Items]),
   F = fun(Item, StateAcc) ->
     deliver(Item, 0, StateAcc)
       end,
@@ -261,7 +261,7 @@ corr_id(Key, Payload) ->
 %%% MQ Connection functions.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 start_connection(State = #state{config = Config, reconnector = Recon, safe_mode = Safe}) ->
-   lager:notice("amqp_params: ~p",[lager:pr(Config, ?MODULE)] ),
+   logger:notice("amqp_params: ~p",[Config] ),
   Connection = maybe_start_connection(State),
   NewState =
     case Connection of
@@ -275,12 +275,12 @@ start_connection(State = #state{config = Config, reconnector = Recon, safe_mode 
               reconnector = backoff:reset(Recon)},
             NState;
           Er ->
-            lager:warning("Error starting channel: ~p",[Er]),
+            logger:warning("Error starting channel: ~p",[Er]),
             {ok, Reconnector} = backoff:execute(Recon, connect),
             State#state{available = false, reconnector = Reconnector}
         end;
       E ->
-        lager:warning("Error starting amqp connection: ~p :: ~p",[Config, E]),
+        logger:warning("Error starting amqp connection: ~p :: ~p",[Config, E]),
         {ok, Reconnector} = backoff:execute(Recon, connect),
         State#state{available = false, reconnector = Reconnector}
     end,
@@ -291,7 +291,7 @@ new_channel({ok, Connection}, SafeMode) ->
   configure_channel(amqp_connection:open_channel(Connection), SafeMode);
 
 new_channel(Error, _) ->
-  lager:warning("Error connecting to broker: ~p",[Error]),
+  logger:warning("Error connecting to broker: ~p",[Error]),
   Error.
 
 configure_channel({ok, Channel}, false) ->
@@ -304,7 +304,7 @@ configure_channel({ok, Channel}, true) ->
     {'confirm.select_ok'} ->
       {ok, Channel};
     Error ->
-      lager:error("Could not configure channel: ~p", [Error]),
+      logger:error("Could not configure channel: ~p", [Error]),
       Error
   end;
 

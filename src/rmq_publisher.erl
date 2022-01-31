@@ -65,8 +65,9 @@ init([Queue, Config]) ->
   Reconnector = backoff:new({100, 4200}),
   {ok, Reconnector1} = backoff:execute(Reconnector, connect),
   AmqpParams = carrot_connect_options:parse(Config),
-  SafeMode = maps:get(safe_mode, Config, false),
-  DeliveryMode = case maps:get(persistent, Config, false) of true -> 2; false -> 1 end,
+  Configuration = maps:from_list(Config),
+  SafeMode = maps:get(safe_mode, Configuration, false),
+  DeliveryMode = case maps:get(persistent, Configuration, false) of true -> 2; false -> 1 end,
   MemQ = case Queue of undefined -> memory_queue:new(); _ -> undefined end,
 %%   logger:info("adaptive interval: ~p",[logger:pr(AdaptInt, adaptive_interval)]),
   {ok, #state{

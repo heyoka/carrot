@@ -8,6 +8,7 @@
      stdlib,
      lager,
      crypto,
+     liberlang,
      rabbit_common,
      amqp_client
    ]},

@@ -80,8 +80,12 @@ init([Queue, Config]) ->
   }}.
 
 -spec handle_cast(term(), state()) -> {noreply, state()}.
+handle_cast({deliver, Exchange, Key, Payload, Args} = M, State = #state{channel = Ch}) ->
+  Avail = is_pid(Ch) andalso erlang:is_process_alive(Ch),
+  NewState = deliver({Exchange, Key, Payload, Args}, 1, State#state{available = Avail}),
+  {noreply, NewState};
 handle_cast(Msg, State) ->
-  logger:warning("Invalid cast: ~p in ~p", [Msg, ?MODULE]),
+  lager:warning("Invalid cast: ~p in ~p", [Msg, ?MODULE]),
   {noreply, State}.
 
 %%%%%%%%%%%%%%%%%%%
@@ -217,7 +221,7 @@ code_change(_OldVsn, State, _Extra) ->
 deliver({_Exchange, _Key, _Payload, _Args}, _QReceipt, State = #state{available = false, mem_q = undefined}) ->
   State;
 deliver({_Exchange, _Key, _Payload, _Args} = M, _QReceipt, State = #state{available = false, mem_q = Q}) ->
-  logger:warning("deliver, when not available!"),
+  lager:warning("deliver, when not available!"),
   NewQ = memory_queue:enq(M, Q),
   State#state{mem_q = NewQ};
 deliver({Exchange, Key, Payload, Args}, QReceipt, State = #state{channel = Channel, delivery_mode = DeliveryMode}) ->
@@ -230,6 +234,7 @@ deliver({Exchange, Key, Payload, Args}, QReceipt, State = #state{channel = Chann
   NewState =
     case amqp_channel:call(Channel, Publish, Message) of
       ok ->
+%%        lager:notice("amqp message published to broker: ~p",[State#state.config]),
         case State#state.safe_mode of
           true ->
             PenList = maps:put(NextSeqNo, QReceipt, State#state.pending_acks),
@@ -262,7 +267,7 @@ corr_id(Key, Payload) ->
 %%% MQ Connection functions.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 start_connection(State = #state{config = Config, reconnector = Recon, safe_mode = Safe}) ->
-   logger:notice("amqp_params: ~p",[Config] ),
+%%   lager:notice("amqp_params: ~p",[Config] ),
   Connection = maybe_start_connection(State),
   NewState =
     case Connection of

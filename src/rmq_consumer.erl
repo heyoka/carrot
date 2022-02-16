@@ -109,7 +109,7 @@ init([Callback, Config]) ->
    Confirm = proplists:get_value(confirm, Config, true),
    {Callback1, CBState} =
    case is_pid(Callback) of
-      true  -> {Callback, undefined};
+      true  -> erlang:monitor(process, Callback), {Callback, undefined};
       false -> {ok, CallbackState} = Callback:init(), {Callback, CallbackState}
    end,
    erlang:send_after(0, self(), connect),
@@ -148,6 +148,10 @@ handle_info(stop, State=#state{}) ->
 handle_info( {'DOWN', _Ref, process, Conn, Reason}, State=#state{connection = Conn}) ->
    lager:notice("MQ connection is DOWN: ~p", [Reason]),
    {noreply, State};
+handle_info( {'DOWN', _Ref, process, Callback, Reason}, State=#state{callback = Callback}) ->
+   lager:notice("parent pid is DOWN: ~p, will stop myself", [Reason]),
+   %% looks like the parent process died, so stop myself
+   {stop, normal, State};
 handle_info( {'DOWN', _Ref, process, _Pid, _Reason} = Req, State=#state{callback = Callback, callback_state = CBState}) ->
 %%   lager:alert("MQ channel is DOWN: ~p", [Reason]),
    NewCallbackState =

@@ -42,12 +42,13 @@ setup(Channel, Config, UseAck) ->
       undefined -> ok; %% if there is no xchange defined, just declare the mandatory queue
 
       XCreateConfig ->  %% declare and bind exchange to exchange1
+         lager:notice("xcreateConfig: ~p",[XCreateConfig]),
          XDeclare = to_exchange_declare(XCreateConfig, Type),
          #'exchange.declare_ok'{} = amqp_channel:call(Channel, XDeclare),
-         io:format("#setup Xchange: ~p",["xchange declared ok"]),
+         io:format("#setup Xchange: ~p~n",["xchange declared ok"]),
          XBind = to_exchange_bind(XCreateConfig, Type),
          #'exchange.bind_ok'{} = amqp_channel:call(Channel, XBind),
-         io:format("#setup Xchange: ~p",["xchange bind ok"])
+         io:format("#setup Xchange: ~p~n",["xchange bind ok"])
    end,
 
    QConfig = proplists:get_value(queue, Setup),
@@ -58,10 +59,15 @@ setup(Channel, Config, UseAck) ->
    QDeclare = to_queue_declare(QConfig, Type),
 
    #'queue.declare_ok'{queue = QName} = amqp_channel:call(Channel, QDeclare),
-   io:format("#setup Queue: ~p ~n ~p",["queue declared ok", QDeclare]),
+   io:format("#setup Queue: ~p ~n ~p~n",["queue declared ok", QDeclare]),
    case proplists:get_value(exchange, QConfig) of
       undefined   -> ok;
-      _E          -> setup_bindings(Channel, QConfig, Type)
+      E           ->
+         %% ensure exchange exists
+         XDeclareD = to_exchange_declare([{exchange, E},{type, <<"topic">>}], Type),
+         lager:notice("#declare/ensure exchange: ~p", [lager:pr(XDeclareD, ?MODULE)]),
+         #'exchange.declare_ok'{} = amqp_channel:call(Channel, XDeclareD),
+         setup_bindings(Channel, QConfig, Type)
    end,
    ConsumerTag = proplists:get_value(consumer_tag, Config, <<"">>),
    consume_queue(Channel, QName, proplists:get_value(prefetch_count, Config, 0), ConsumerTag, UseAck).

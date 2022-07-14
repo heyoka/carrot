@@ -101,9 +101,17 @@ handle_info(connect, State) ->
   end;
 
 
-handle_info( {'DOWN', _Ref, process, Conn, _Reason} = _Req, State=#state{connection = Conn}) ->
-  logger:debug("RMQ Connection down, waiting for EXIT on channel ..."),
-  {noreply, State};
+handle_info({'EXIT', Conn, Reason}, State=#state{connection = Conn, channel = MQPid, reconnector = Recon} ) ->
+  lager:notice("RMQ Connection died with Reason: ~p",[Reason]),
+  catch unlink(MQPid),
+  catch amqp_channel:close(MQPid),
+  {ok, Reconnector} = backoff:execute(Recon, connect),
+  {noreply, State#state{
+    reconnector = Reconnector,
+    channel = undefined,
+    channel_ref = undefined,
+    available = false
+  }};
 handle_info({'EXIT', MQPid, Reason}, State=#state{channel = MQPid, reconnector = Recon} ) ->
   logger:notice("MQ channel DIED: ~p", [Reason]),
   {ok, Reconnector} = backoff:execute(Recon, connect),
@@ -190,12 +198,10 @@ terminate(Reason, #state{channel = Channel, connection = Conn} = State) ->
 .
 
 close(Channel, Conn, #state{queue = _Q, last_confirmed_dtag = _LastTag, pending_acks = _Pending, deq_timer_ref = T}) ->
-  catch (erlang:cancel_timer(T)),
-  amqp_channel:unregister_confirm_handler(Channel),
-  amqp_channel:unregister_return_handler(Channel),
-  amqp_channel:unregister_flow_handler(Channel),
-  amqp_channel:close(Channel),
-  amqp_connection:close(Conn).
+  unlink(Conn),
+  unlink(Channel),
+  amqp_connection:close(Conn),
+  catch (erlang:cancel_timer(T)).
 
 -spec code_change(string(), state(), term()) -> {ok, state()}.
 code_change(_OldVsn, State, _Extra) ->
@@ -328,7 +334,7 @@ maybe_start_connection(#state{connection = Conn, config = Config}) ->
       {ok, Conn};
     false ->
       case amqp_connection:start(Config) of
-        {ok, NewConn} = Res -> erlang:monitor(process, NewConn), Res;
+        {ok, NewConn} = Res -> link(NewConn), Res;
         Other -> Other
       end
   end.

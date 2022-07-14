@@ -145,9 +145,9 @@ handle_info(stop, State=#state{}) ->
    lager:notice("stopping rmq_consumer: ~p",[self()]),
    {stop, shutdown, State};
 
-handle_info( {'DOWN', _Ref, process, Conn, Reason}, State=#state{connection = Conn}) ->
-   lager:notice("MQ connection is DOWN: ~p", [Reason]),
-   {noreply, State};
+%%handle_info( {'DOWN', _Ref, process, Conn, Reason}, State=#state{connection = Conn}) ->
+%%   lager:notice("MQ connection is DOWN: ~p", [Reason]),
+%%   {noreply, State};
 handle_info( {'DOWN', _Ref, process, Callback, Reason}, State=#state{callback = Callback}) ->
    lager:notice("parent pid is DOWN: ~p, will stop myself", [Reason]),
    %% looks like the parent process died, so stop myself
@@ -166,6 +166,25 @@ handle_info( {'DOWN', _Ref, process, _Pid, _Reason} = Req, State=#state{callback
       end,
    {noreply, State#state{callback_state = NewCallbackState}};
 
+
+handle_info({'EXIT', Conn, Reason}, State=#state{connection = Conn} ) ->
+   lager:notice("MQ connection DIED: ~p", [Reason]),
+%%   NCBState =
+%%      case is_callable(CB, channel_down, 1) of
+%%         true  ->
+%%            {ok, NewCBState} = CB:channel_down(CBState), NewCBState;
+%%         _Other         ->
+%%            lager:info(
+%%               "Function 'handle_info' not exported in Callback-Module: ~p or Callback is a process",
+%%               [CB]),
+%%            CBState
+%%      end,
+%%   erlang:send_after(0, self(), connect),
+   {noreply, State#state{
+%%      channel = undefined,
+      channel_ref = undefined,
+      available = false
+   }};
 
 handle_info({'EXIT', MQPid, Reason}, State=#state{channel = MQPid, callback = CB, callback_state = CBState} ) ->
    lager:notice("MQ channel DIED: ~p", [Reason]),
@@ -281,11 +300,11 @@ handle_call(Req, _From, State) ->
 terminate(Reason, #state{
                         callback = Callback,
                         callback_state = CBState,
-                        channel = Channel,
+%%                        channel = Channel,
                         connection = Conn}) ->
-   lager:info("~p is terminating with reason: ~p",[?MODULE, Reason]),
-   catch amqp_channel:close(Channel),
    catch amqp_connection:close(Conn),
+%%   catch amqp_channel:close(Channel),
+   lager:info("~p is terminating with reason: ~p",[?MODULE, Reason]),
    case is_pid(Callback) of
       true -> ok;
       false -> Callback:terminate(Reason, CBState)
@@ -364,7 +383,7 @@ maybe_start_connection(#state{connection = Conn, amqp_config = Config}) ->
          {ok, Conn};
       false ->
          case amqp_connection:start(Config) of
-            {ok, NewConn} = Res -> erlang:monitor(process, NewConn), Res;
+            {ok, NewConn} = Res -> link(NewConn), Res;
             Other -> Other
          end
    end.

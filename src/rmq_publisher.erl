@@ -92,7 +92,6 @@ handle_cast(Msg, State) ->
 
 -spec handle_info(term(), state()) -> {noreply, state()}.
 handle_info(connect, State) ->
-  logger:notice("[~p] connect to rmq",[?MODULE]),
   NewState = start_connection(State),
   case NewState#state.available of
     true ->
@@ -125,7 +124,7 @@ handle_info({'EXIT', MQPid, Reason}, State=#state{channel = MQPid, reconnector =
 
 handle_info({deliver, Exchange, Key, Payload, Args} = M, State = #state{channel = Ch}) ->
   Avail = is_pid(Ch) andalso erlang:is_process_alive(Ch),
-  logger:notice("deliver: ~p when avail: ~p",[M, Avail]),
+%%  logger:notice("deliver: ~p when avail: ~p",[M, Avail]),
   NewState = deliver({Exchange, Key, Payload, Args}, 1, State#state{available = Avail}),
   {noreply, NewState};
 
@@ -136,16 +135,18 @@ handle_info({deliver, Exchange, Key, Payload, Args} = M, State = #state{channel 
 %%
 %% this function will release the given leases (delivery_tag(s)) in acking the stored esq-receipts, if in safe_mode
 %% @end
-handle_info(#'basic.ack'{}=Ack, State = #state{safe_mode = false}) ->
-  logger:notice("rabbit acked: ~p", [Ack]),
+handle_info(#'basic.ack'{}=_Ack, State = #state{safe_mode = false}) ->
+%%  logger:notice("rabbit acked: ~p", [Ack]),
   {noreply, State};
 handle_info(#'basic.ack'{delivery_tag = DTag, multiple = Multiple},
     State = #state{queue = _Q, pending_acks = Pending}) ->
   Tags =
     case Multiple of
-      true -> logger:warning("RabbitMQ confirmed MULTIPLE Tags till ~p",[DTag]),
+      true ->
+%%        logger:warning("RabbitMQ confirmed MULTIPLE Tags till ~p",[DTag]),
         lists:seq(State#state.last_confirmed_dtag + 1, DTag);
-      false -> logger:notice("RabbitMQ confirmed Tag ~p",[DTag]),
+      false ->
+%%        logger:notice("RabbitMQ confirmed Tag ~p",[DTag]),
         [DTag]
     end,
    logger:notice("new pending: ~p",[maps:without(Tags, Pending)]),
@@ -178,7 +179,6 @@ handle_info(#'connection.unblocked'{}, State = #state{deq_timer_ref = T}) ->
   {noreply, State#state{available = true}};
 
 handle_info(report_pendinglist_length, #state{pending_acks = P} = State) ->
-  logger:notice("Bunny-Worker PendingList-length: ~p", [{self(), length(P)}]),
   {noreply, State};
 handle_info(stop, State) ->
   {stop, normal, State};
@@ -227,7 +227,6 @@ code_change(_OldVsn, State, _Extra) ->
 deliver({_Exchange, _Key, _Payload, _Args}, _QReceipt, State = #state{available = false, mem_q = undefined}) ->
   State;
 deliver({_Exchange, _Key, _Payload, _Args} = M, _QReceipt, State = #state{available = false, mem_q = Q}) ->
-  lager:warning("deliver, when not available!"),
   NewQ = memory_queue:enq(M, Q),
   State#state{mem_q = NewQ};
 deliver({Exchange, Key, Payload, Args}, QReceipt, State = #state{channel = Channel, delivery_mode = DeliveryMode}) ->
@@ -257,7 +256,6 @@ deliver({Exchange, Key, Payload, Args}, QReceipt, State = #state{channel = Chann
 
 maybe_redeliver(S = #state{mem_q = Q, queue = undefined}) ->
   {Items, NewQ} = memory_queue:to_list_reset(Q),
-  logger:info("redeliver: ~p",[Items]),
   F = fun(Item, StateAcc) ->
     deliver(Item, 0, StateAcc)
       end,

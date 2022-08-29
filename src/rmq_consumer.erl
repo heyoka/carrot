@@ -129,27 +129,14 @@ handle_info(connect, State) ->
       false -> nil
    end,
    {noreply, NewState};
-%%   {Available, Channel, Conn} = check_for_channel(State),
-%%
-%%   case Available of
-%%      true  -> carrot_amqp:setup(Channel, State#state.config);
-%%      false -> nil
-%%   end,
-%%   {noreply, State#state{
-%%      channel = Channel,
-%%      available = Available,
-%%      connection = Conn
-%%   }};
 
 handle_info(stop, State=#state{}) ->
-   lager:notice("stopping rmq_consumer: ~p",[self()]),
    {stop, shutdown, State};
 
 %%handle_info( {'DOWN', _Ref, process, Conn, Reason}, State=#state{connection = Conn}) ->
 %%   lager:notice("MQ connection is DOWN: ~p", [Reason]),
 %%   {noreply, State};
 handle_info( {'DOWN', _Ref, process, Callback, Reason}, State=#state{callback = Callback}) ->
-   lager:notice("parent pid is DOWN: ~p, will stop myself", [Reason]),
    %% looks like the parent process died, so stop myself
    {stop, normal, State};
 handle_info( {'DOWN', _Ref, process, _Pid, _Reason} = Req, State=#state{callback = Callback, callback_state = CBState}) ->
@@ -159,9 +146,6 @@ handle_info( {'DOWN', _Ref, process, _Pid, _Reason} = Req, State=#state{callback
          true  ->
                      {ok, NewCBState} = Callback:handle_info(Req, CBState), NewCBState;
          _Other         ->
-                     lager:info(
-                        "Function 'handle_info' not exported in Callback-Module: ~p or Callback is a process",
-                        [Callback]),
                      CBState
       end,
    {noreply, State#state{callback_state = NewCallbackState}};
@@ -169,19 +153,7 @@ handle_info( {'DOWN', _Ref, process, _Pid, _Reason} = Req, State=#state{callback
 
 handle_info({'EXIT', Conn, Reason}, State=#state{connection = Conn} ) ->
    lager:notice("MQ connection DIED: ~p", [Reason]),
-%%   NCBState =
-%%      case is_callable(CB, channel_down, 1) of
-%%         true  ->
-%%            {ok, NewCBState} = CB:channel_down(CBState), NewCBState;
-%%         _Other         ->
-%%            lager:info(
-%%               "Function 'handle_info' not exported in Callback-Module: ~p or Callback is a process",
-%%               [CB]),
-%%            CBState
-%%      end,
-%%   erlang:send_after(0, self(), connect),
    {noreply, State#state{
-%%      channel = undefined,
       channel_ref = undefined,
       available = false
    }};
@@ -193,9 +165,6 @@ handle_info({'EXIT', MQPid, Reason}, State=#state{channel = MQPid, callback = CB
          true  ->
             {ok, NewCBState} = CB:channel_down(CBState), NewCBState;
          _Other         ->
-            lager:info(
-               "Function 'handle_info' not exported in Callback-Module: ~p or Callback is a process",
-               [CB]),
             CBState
       end,
    erlang:send_after(0, self(), connect),
@@ -211,7 +180,8 @@ handle_info({'EXIT', _OtherPid, _Reason} = Message,
    NewCallbackState =
    case is_callable(Callback, handle_info, 2) of
       true -> {ok, NewCBState} = Callback:handle_info(Message, CallbackState), NewCBState;
-      false -> lager:info("Function 'handle_info' not exported in Callback-Module: ~p",[Callback]), CallbackState
+      false ->
+         CallbackState
    end,
 
    {noreply, State#state{callback_state = NewCallbackState}};
@@ -245,12 +215,10 @@ handle_info(Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = _RKey},
    end,
    {noreply, State#state{callback_state = NewCallbackState}}
 ;
-handle_info({'basic.consume_ok', Tag}, State) ->
-   lager:debug("got handle_info basic.consume_ok for Tag: ~p",[Tag]),
+handle_info({'basic.consume_ok', _Tag}, State) ->
    {noreply, State}
 ;
 handle_info({'basic.qos_ok', {}}, State) ->
-   lager:debug("got handle_info basic.qos_ok for Channel: ~p",[State#state.channel]),
    {noreply, State}
 ;
 handle_info({ack, Tag}, State=#state{last_dtag = LastTag}) when Tag > LastTag ->
@@ -271,17 +239,14 @@ handle_info({ack, multiple, Tag}, State) ->
 ;
 handle_info({nack, Tag}, State) ->
    amqp_channel:call(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = true}),
-   lager:debug("nacked single Tag: ~p",[Tag]),
    {noreply, State}
 ;
 handle_info({nack, multiple, Tag}, State) ->
    amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = true, requeue = true}),
-   lager:debug("nacked multiple till Tag: ~p",[Tag]),
    {noreply, State}
 ;
 handle_info({reject, Tag}, State) ->
    amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = false}),
-   lager:debug("reject Tag: ~p",[Tag]),
    {noreply, State}
 ;
 handle_info(Msg, State) ->
@@ -376,7 +341,6 @@ handle_ack_multiple(Tag, Channel) ->
 maybe_start_connection(#state{connection = Conn, amqp_config = Config}) ->
    case is_pid(Conn) andalso is_process_alive(Conn) of
       true ->
-         lager:notice("connection still alive"),
          {ok, Conn};
       false ->
          case amqp_connection:start(Config) of

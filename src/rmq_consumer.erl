@@ -245,8 +245,12 @@ handle_info({nack, multiple, Tag}, State) ->
    amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = true, requeue = true}),
    {noreply, State}
 ;
+handle_info({reject, Tag, Requeue}, State) ->
+   amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = Requeue}),
+   {noreply, State}
+;
 handle_info({reject, Tag}, State) ->
-   amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = false}),
+   amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = true}),
    {noreply, State}
 ;
 handle_info(Msg, State) ->

@@ -8,10 +8,14 @@
 
 %% User API
 -export([
-   ack/2, ack_multiple/2,
-   nack/2, nack_multiple/2,
+   ack/2,
+   ack_multiple/2,
+   nack/2,
+   nack_multiple/2,
    reject/2,
-   channel_ack/2, channel_ack_multiple/2]).
+   reject/3,
+   channel_ack/2,
+   channel_ack_multiple/2]).
 
 
 start() ->
@@ -45,3 +49,5 @@ nack_multiple(Consumer, Tag) ->
    Consumer ! {nack, multiple, Tag}.
 reject(Consumer, Tag) ->
    Consumer ! {reject, Tag}.
+reject(Consumer, Tag, Requeue) ->
+   Consumer ! {reject, Tag, Requeue}.

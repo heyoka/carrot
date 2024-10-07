@@ -5,8 +5,6 @@ received from a rabbit_mq-broker by providing a callback module that handles the
 
 All this is done via a simple proplist-config which is also updateable on the fly.
 
-Note: carrot is fairly new, so things will change
-
 
 
 ## The Configuration

@@ -73,14 +73,11 @@ consume_queue(Channel, Q, Prefetch, CTag, UseAck) ->
       false   ->
          ok;
       true      ->
-%%         io:format("Set Prefetch-Count for Channel: ~p",[Prefetch]),
          #'basic.qos_ok'{} = amqp_channel:call(Channel, #'basic.qos'{prefetch_count = Prefetch})
    end,
    %% actually consume from q
-   #'basic.consume_ok'{consumer_tag = Tag} =
+   #'basic.consume_ok'{consumer_tag = _Tag} =
       amqp_channel:subscribe(Channel, #'basic.consume'{queue = Q, consumer_tag = CTag, no_ack = not UseAck}, self())
-%%   ,
-%%   io:format("#setup subscribed to queue : ~p got back tag: ~p~n",[Q, Tag]).
    .
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

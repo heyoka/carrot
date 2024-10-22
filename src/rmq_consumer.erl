@@ -26,6 +26,8 @@
 %%% Types.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%%-define(MAX_TAG, 16#F423F). %% 999999
+-define(MAX_TAG, 999999). %% 999999
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Required Types.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -45,7 +47,8 @@
    callback_state :: term(),
    available = false:: boolean(),
    confirm = true :: boolean(),
-   last_dtag = 0
+   internal_tag = 0,
+   tag_map = #{} :: map()
 }).
 
 -type state():: #state{}.
@@ -133,10 +136,7 @@ handle_info(connect, State) ->
 handle_info(stop, State=#state{}) ->
    {stop, shutdown, State};
 
-%%handle_info( {'DOWN', _Ref, process, Conn, Reason}, State=#state{connection = Conn}) ->
-%%   lager:notice("MQ connection is DOWN: ~p", [Reason]),
-%%   {noreply, State};
-handle_info( {'DOWN', _Ref, process, Callback, Reason}, State=#state{callback = Callback}) ->
+handle_info( {'DOWN', _Ref, process, Callback, _Reason}, State=#state{callback = Callback}) ->
    %% looks like the parent process died, so stop myself
    {stop, normal, State};
 handle_info( {'DOWN', _Ref, process, _Pid, _Reason} = Req, State=#state{callback = Callback, callback_state = CBState}) ->
@@ -153,22 +153,27 @@ handle_info( {'DOWN', _Ref, process, _Pid, _Reason} = Req, State=#state{callback
 
 handle_info({'EXIT', Conn, Reason}, State=#state{connection = Conn} ) ->
    lager:notice("MQ connection DIED: ~p", [Reason]),
-   {noreply, State#state{
+   NewState = invalidate_tags(State),
+   send_conn_status(amqp_disconnected, NewState),
+   {noreply, NewState#state{
       channel_ref = undefined,
       available = false
    }};
 
 handle_info({'EXIT', MQPid, Reason}, State=#state{channel = MQPid, callback = CB, callback_state = CBState} ) ->
    lager:notice("MQ channel DIED: ~p", [Reason]),
+
    NCBState =
       case is_callable(CB, channel_down, 1) of
          true  ->
             {ok, NewCBState} = CB:channel_down(CBState), NewCBState;
          _Other         ->
+            send_conn_status(amqp_disconnected, State),
             CBState
       end,
    erlang:send_after(0, self(), connect),
-   {noreply, State#state{
+   NewState = invalidate_tags(State),
+   {noreply, NewState#state{
       channel = undefined,
       channel_ref = undefined,
       available = false,
@@ -186,15 +191,17 @@ handle_info({'EXIT', _OtherPid, _Reason} = Message,
 
    {noreply, State#state{callback_state = NewCallbackState}};
 
-handle_info(_Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey, redelivered = Redelivered}, #'amqp_msg'{
+%% @doc handle incoming messages from rmq, when callback is a process
+handle_info(_Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey, redelivered = _Redelivered}, #'amqp_msg'{
       payload = Payload, props = #'P_basic'{headers = Headers, correlation_id = CorrId}
    }}, #state{callback = Callback, channel = Channel} = State)
                            when is_pid(Callback) ->
 
-   Msg = { {DTag, RKey}, {Payload, CorrId, Headers}, Channel},
+   {NewTag, NewState} = add_tag(DTag, State),
+   Msg = { {NewTag, RKey}, {Payload, CorrId, Headers}, Channel},
    Callback ! Msg,
-   {noreply, State#state{last_dtag = DTag}};
-%% @doc handle incoming messages from rmq
+   {noreply, NewState};
+%% @doc handle incoming messages from rmq, when callback is a module
 handle_info(Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = _RKey},
    #'amqp_msg'{payload = _Msg, props = #'P_basic'{headers = _Headers, correlation_id = _CorrId}}},
     #state{callback = Callback, callback_state = CState} = State)    ->
@@ -221,20 +228,23 @@ handle_info({'basic.consume_ok', _Tag}, State) ->
 handle_info({'basic.qos_ok', {}}, State) ->
    {noreply, State}
 ;
-handle_info({ack, Tag}, State=#state{last_dtag = LastTag}) when Tag > LastTag ->
-   lager:notice("acked Tag > than last_tag seen on this channel"),
-   %% nope
-   {noreply, State};
-handle_info({ack, Tag}, State) ->
-   handle_ack(Tag, State#state.channel),
+handle_info({ack, InternalTag}, State=#state{tag_map = TagMap}) when is_map_key(InternalTag, TagMap) ->
+   {DTag, NewTagMap} = maps:take(InternalTag, TagMap),
+   handle_ack(DTag, State#state.channel),
+   {noreply, State#state{tag_map = NewTagMap}};
+handle_info({ack, _InternalTag}, State) ->
    {noreply, State}
 ;
-handle_info({ack, multiple, Tag}, State=#state{last_dtag = LastTag}) when Tag > LastTag ->
-   lager:notice("acked Tag > than last_tag seen on this channel"),
+handle_info({ack, multiple, InternalTag}, State=#state{tag_map = TagMap}) when is_map_key(InternalTag, TagMap) ->
+   {DTag, TagMap0} = maps:take(InternalTag, TagMap),
+%%   lager:info("ack multiple with internal tag ~p FOUND, DTag: ~p",[InternalTag, DTag]),
+   handle_ack_multiple(DTag, State#state.channel),
+   NewTagMap = maps:filter(fun(K, _V) -> K > InternalTag end, TagMap0),
+   {noreply, State#state{tag_map = NewTagMap}}
+;
+handle_info({ack, multiple, InternalTag}, State=#state{}) ->
+   lager:notice("acking (multiple) for internal tag ~p, NOT FOUND, ignore", [InternalTag]),
    %% nope
-   {noreply, State};
-handle_info({ack, multiple, Tag}, State) ->
-   handle_ack_multiple(Tag, State#state.channel),
    {noreply, State}
 ;
 handle_info({nack, Tag}, State) ->
@@ -284,13 +294,38 @@ code_change(_OldVsn, State, _Extra) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Private API.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+send_conn_status(Status, #state{callback = CB}) when is_pid(CB) ->
+   case is_process_alive(CB) of
+      true -> CB ! {Status, self()};
+      false -> ok
+   end;
+send_conn_status(_S, _State) -> ok.
+
+%% dtag handling
+add_tag(_DTag, State=#state{confirm = false}) ->
+   %% do not store tags, if we do not confirm anyways, but we increase the internal tag, to not break any code outside
+   %% dealing with the tags
+   next_tag(State);
+add_tag(DTag, State=#state{tag_map = TagMap}) ->
+   {NewIntTag, NewState} = next_tag(State),
+   {NewIntTag,
+      NewState#state{tag_map = TagMap#{NewIntTag => DTag}}
+   }.
+
+invalidate_tags(State) ->
+   State#state{tag_map = #{}}.
+
+next_tag(State = #state{internal_tag = ITag}) when ITag > ?MAX_TAG ->
+   {1, State#state{internal_tag = 1}};
+next_tag(State = #state{internal_tag = ITag}) ->
+   {ITag+1, State#state{internal_tag = ITag+1}}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% MQ connection functions.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-start_connection(State = #state{amqp_config = Config}) ->
+start_connection(State = #state{amqp_config = _Config, callback = _CB}) ->
 %%   lager:info("amqp_params: ~p",[lager:pr(Config, ?MODULE)] ),
    Connection = maybe_start_connection(State),
    NewState =
@@ -299,6 +334,7 @@ start_connection(State = #state{amqp_config = Config}) ->
             Channel = new_channel(Connection),
             case Channel of
                {ok, Chan} ->
+                  send_conn_status(amqp_connected, State),
                   State#state{connection = Conn, channel = Chan, available = true};
                Er ->
                   lager:warning("Error starting channel: ~p",[Er]),
@@ -314,7 +350,6 @@ start_connection(State = #state{amqp_config = Config}) ->
 
 
 new_channel({ok, Connection}) ->
-%%    link(Connection),
    configure_channel(amqp_connection:open_channel(Connection));
 
 new_channel(Error) ->

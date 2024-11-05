@@ -48,7 +48,8 @@
    available = false:: boolean(),
    confirm = true :: boolean(),
    internal_tag = 0,
-   tag_map = #{} :: map()
+   tag_map = #{} :: map(),
+   qname :: binary()
 }).
 
 -type state():: #state{}.
@@ -127,11 +128,20 @@ handle_cast(Msg, State) ->
 -spec handle_info(term(), state()) -> {noreply, state()}.
 handle_info(connect, State) ->
    NewState = start_connection(State),
+   State1 =
    case NewState#state.available of
-      true -> carrot_amqp:setup(NewState#state.channel, State#state.config, State#state.confirm);
-      false -> nil
+      true ->
+         QName = carrot_amqp:setup(NewState#state.channel, State#state.config, State#state.confirm),
+         NewState#state{qname = QName};
+      false -> NewState
    end,
-   {noreply, NewState};
+   {noreply, State1};
+
+handle_info(unbind_delete_queue, State = #state{channel = Channel, qname = Queue}) ->
+   Delete = #'queue.delete'{queue = Queue},
+   #'queue.delete_ok'{} = amqp_channel:call(Channel, Delete),
+   lager:warning("Queue ~p deleted",[Queue]),
+   {noreply, State};
 
 handle_info(stop, State=#state{}) ->
    {stop, shutdown, State};
@@ -198,7 +208,8 @@ handle_info(_Event = {#'basic.deliver'{delivery_tag = DTag, routing_key = RKey, 
                            when is_pid(Callback) ->
 
    {NewTag, NewState} = add_tag(DTag, State),
-   Msg = { {NewTag, RKey}, {Payload, CorrId, Headers}, Channel},
+%%   Msg = { {NewTag, RKey}, {Payload, CorrId, Headers}, Channel},
+   Msg = {deliver, State#state.qname, Channel, {NewTag, RKey}, {Payload, CorrId, Headers}},
    Callback ! Msg,
    {noreply, NewState};
 %% @doc handle incoming messages from rmq, when callback is a module
@@ -242,8 +253,8 @@ handle_info({ack, multiple, InternalTag}, State=#state{tag_map = TagMap}) when i
    NewTagMap = maps:filter(fun(K, _V) -> K > InternalTag end, TagMap0),
    {noreply, State#state{tag_map = NewTagMap}}
 ;
-handle_info({ack, multiple, InternalTag}, State=#state{}) ->
-   lager:notice("acking (multiple) for internal tag ~p, NOT FOUND, ignore", [InternalTag]),
+handle_info({ack, multiple, InternalTag}, State=#state{qname = Q}) ->
+   lager:notice("acking (multiple) for queue ~p, internal tag ~p, NOT FOUND, ignore", [Q, InternalTag]),
    %% nope
    {noreply, State}
 ;

@@ -34,6 +34,7 @@
 
 
 %% setup exchange, queue, bind exchange queue, setup prefetch and consume from the queue
+-spec setup(Channel :: pid(), Config::list(), UseAck::true|false) -> QName::binary().
 setup(Channel, Config, UseAck) ->
 
    Setup = proplists:get_value(setup, Config),
@@ -54,6 +55,7 @@ setup(Channel, Config, UseAck) ->
 
    %% declare and bind queue to exchange
    QDeclare = to_queue_declare(QConfig, Type),
+%%   lager:notice("Queue declare ~p",[QDeclare]),
 
    #'queue.declare_ok'{queue = QName} = amqp_channel:call(Channel, QDeclare),
    case proplists:get_value(exchange, QConfig) of
@@ -65,7 +67,8 @@ setup(Channel, Config, UseAck) ->
          setup_bindings(Channel, QConfig, Type)
    end,
    ConsumerTag = proplists:get_value(consumer_tag, Config, <<"">>),
-   consume_queue(Channel, QName, proplists:get_value(prefetch_count, Config, 0), ConsumerTag, UseAck).
+   consume_queue(Channel, QName, proplists:get_value(prefetch_count, Config, 0), ConsumerTag, UseAck),
+   QName.
 
 consume_queue(Channel, Q, Prefetch, CTag, UseAck) ->
    %% set prefetch count if any
@@ -159,7 +162,7 @@ prep_q_bind(temporary, false) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Converts a tuple list of values to a record with name RecName
 to_record(RecName, Properties, Defaults) ->
-%%   io:format("old props: ~p",[Properties]),
+%%   lager:info("old props: ~p",[Properties]),
    NewProps =
    case proplists:get_value(arguments, Properties) of
       undefined -> Properties;
@@ -168,9 +171,9 @@ to_record(RecName, Properties, Defaults) ->
                                  lists:flatten([{arguments, NewTable}|proplists:delete(arguments, Properties)])
 
    end,
-%%   io:format("converted properties: ~p",[NewProps]),
+%%   lager:info("converted properties: ~p",[NewProps]),
    Rec = to_record(RecName, carrot_util:proplists_merge(NewProps, Defaults)),
-%%   io:format("Record is ~p",[Rec]),
+%%   lager:info("Record is ~p",[Rec]),
    Rec.
 to_record(RecName, Properties) ->
    list_to_tuple([RecName|[proplists:get_value(X, Properties, false) ||

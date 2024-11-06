@@ -161,8 +161,8 @@ handle_info( {'DOWN', _Ref, process, _Pid, _Reason} = Req, State=#state{callback
    {noreply, State#state{callback_state = NewCallbackState}};
 
 
-handle_info({'EXIT', Conn, Reason}, State=#state{connection = Conn} ) ->
-   lager:notice("MQ connection DIED: ~p", [Reason]),
+handle_info({'EXIT', Conn, Reason}, State=#state{connection = Conn, qname = Queue} ) ->
+   lager:notice("MQ connection (q: ~p) DIED: ~p", [Queue, Reason]),
    NewState = invalidate_tags(State),
    send_conn_status(amqp_disconnected, NewState),
    {noreply, NewState#state{
@@ -171,7 +171,7 @@ handle_info({'EXIT', Conn, Reason}, State=#state{connection = Conn} ) ->
    }};
 
 handle_info({'EXIT', MQPid, Reason}, State=#state{channel = MQPid, callback = CB, callback_state = CBState} ) ->
-   lager:notice("MQ channel DIED: ~p", [Reason]),
+   lager:notice("MQ channel (q: ~p) DIED: ~p", [State#state.qname, Reason]),
 
    NCBState =
       case is_callable(CB, channel_down, 1) of

@@ -274,6 +274,12 @@ handle_info({reject, Tag}, State) ->
    amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = true}),
    {noreply, State}
 ;
+handle_info({'basic.cancel', ConsumerTag, What}, State = #state{qname = Queue, channel = Chan}) ->
+   lager:warning("Rabbit cancelled queue ~p, consumer with tag ~p with nowait ~p",[Queue, ConsumerTag, What]),
+   %% stop our channel and restart, to get back the queue
+   catch amqp_channel:close(Chan, 1, <<"rabbitmq cancelled queue, restart channel">>),
+   {noreply, State}
+;
 handle_info(Msg, State) ->
    lager:error("Unhandled msg in rabbitmq_consumer : ~p", [Msg]),
    {noreply, State}.

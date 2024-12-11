@@ -41,6 +41,8 @@ parse([{ssl, true} | R], Acc) ->
   parse(R, Acc#{ssl => true});
 parse([{ssl_opts, Opts} | R], Acc) ->
   parse(R, Acc#{ssl_opts => Opts});
+parse([{vhost, VHost} | R], Acc) ->
+  parse(R, Acc#{vhost => VHost});
 parse([_ | R], Acc) ->
   parse(R, Acc).
 

@@ -48,7 +48,7 @@
    available = false:: boolean(),
    confirm = true :: boolean(),
    internal_tag = 0,
-   tag_map = #{} :: map(),
+   tag_list = [] :: list(),
    qname :: binary()
 }).
 
@@ -239,40 +239,55 @@ handle_info({'basic.consume_ok', _Tag}, State) ->
 handle_info({'basic.qos_ok', {}}, State) ->
    {noreply, State}
 ;
-handle_info({ack, InternalTag}, State=#state{tag_map = TagMap}) when is_map_key(InternalTag, TagMap) ->
-   {DTag, NewTagMap} = maps:take(InternalTag, TagMap),
-   handle_ack(DTag, State#state.channel),
-   {noreply, State#state{tag_map = NewTagMap}};
-handle_info({ack, _InternalTag}, State) ->
-   {noreply, State}
-;
-handle_info({ack, multiple, InternalTag}, State=#state{tag_map = TagMap}) when is_map_key(InternalTag, TagMap) ->
-   {DTag, TagMap0} = maps:take(InternalTag, TagMap),
-%%   lager:info("ack multiple with internal tag ~p FOUND, DTag: ~p",[InternalTag, DTag]),
-   handle_ack_multiple(DTag, State#state.channel),
-   NewTagMap = maps:filter(fun(K, _V) -> K > InternalTag end, TagMap0),
-   {noreply, State#state{tag_map = NewTagMap}}
-;
-handle_info({ack, multiple, InternalTag}, State=#state{qname = Q}) ->
-   lager:notice("acking (multiple) for queue ~p, internal tag ~p, NOT FOUND, ignore", [Q, InternalTag]),
-   %% nope
-   {noreply, State}
+handle_info({ack, InternalTag}, State=#state{tag_list = TagList}) ->
+  case lists:keytake(InternalTag, 1, TagList) of
+    {value, {InternalTag, DTag}, NewTagList} ->
+      handle_ack(DTag, State#state.channel),
+      {noreply, State#state{tag_list = NewTagList}};
+    false ->
+      {noreply, State}
+  end;
+handle_info({ack, multiple, InternalTag}, State=#state{tag_list = TagList, qname = Q}) ->
+
+  case lists:keyfind(InternalTag, 1, TagList) of
+    {InternalTag, DTag} ->
+      handle_ack_multiple(DTag, State#state.channel),
+      NewTagList = lists:filter(fun({K, _V}) -> K >= InternalTag end, TagList),
+%%       lager:notice("ack multi to ~p (tag_list_size ~p)", [{InternalTag, DTag}, length(NewTagList)]),
+      {noreply, State#state{tag_list = NewTagList}};
+    false ->
+      lager:notice("acking (multiple) for queue ~p, internal tag ~p, NOT FOUND, ignore", [Q, InternalTag]),
+      %% nope
+      {noreply, State}
+  end
 ;
 handle_info({nack, Tag}, State) ->
-   amqp_channel:call(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = true}),
-   {noreply, State}
+   maybe_handle_with_tag(
+      fun(DTag) ->
+         amqp_channel:call(State#state.channel, #'basic.nack'{delivery_tag = DTag, multiple = false, requeue = true})
+      end,
+      Tag, State)
 ;
 handle_info({nack, multiple, Tag}, State) ->
-   amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = true, requeue = true}),
-   {noreply, State}
+   maybe_handle_with_tag(
+      fun(DTag) ->
+         amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = DTag, multiple = true, requeue = true})
+      end,
+      Tag, State)
 ;
 handle_info({reject, Tag, Requeue}, State) ->
-   amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = Requeue}),
-   {noreply, State}
+   maybe_handle_with_tag(
+      fun(DTag) ->
+         amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = DTag, multiple = false, requeue = Requeue})
+      end,
+      Tag, State)
 ;
 handle_info({reject, Tag}, State) ->
-   amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = Tag, multiple = false, requeue = true}),
-   {noreply, State}
+   maybe_handle_with_tag(
+      fun(DTag) ->
+         amqp_channel:cast(State#state.channel, #'basic.nack'{delivery_tag = DTag, multiple = false, requeue = true})
+      end,
+      Tag, State)
 ;
 handle_info({'basic.cancel', ConsumerTag, What}, State = #state{qname = Queue, channel = Chan}) ->
    lager:warning("Rabbit cancelled queue ~p, consumer with tag ~p with nowait ~p",[Queue, ConsumerTag, What]),
@@ -284,6 +299,12 @@ handle_info(Msg, State) ->
    lager:error("Unhandled msg in rabbitmq_consumer : ~p", [Msg]),
    {noreply, State}.
 
+maybe_handle_with_tag(Fun, InternalTag, State = #state{tag_list = TagList}) ->
+   case lists:keyfind(InternalTag, 1, TagList) of
+      {InternalTag, DTag} -> Fun(DTag);
+      false -> ok
+   end,
+   {noreply, State}.
 
 handle_call(Req, _From, State) ->
    lager:error("Invalid request: ~p", [Req]),
@@ -323,14 +344,14 @@ add_tag(_DTag, State=#state{confirm = false}) ->
    %% do not store tags, if we do not confirm anyways, but we increase the internal tag, to not break any code outside
    %% dealing with the tags
    next_tag(State);
-add_tag(DTag, State=#state{tag_map = TagMap}) ->
+add_tag(DTag, State=#state{tag_list = TagList}) ->
    {NewIntTag, NewState} = next_tag(State),
    {NewIntTag,
-      NewState#state{tag_map = TagMap#{NewIntTag => DTag}}
+      NewState#state{tag_list = [{NewIntTag, DTag}|TagList]}
    }.
 
 invalidate_tags(State) ->
-   State#state{tag_map = #{}}.
+   State#state{tag_list = []}.
 
 next_tag(State = #state{internal_tag = ITag}) when ITag > ?MAX_TAG ->
    {1, State#state{internal_tag = 1}};

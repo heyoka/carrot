@@ -49,7 +49,10 @@
    confirm = true :: boolean(),
    internal_tag = 0,
    tag_list = [] :: list(),
-   qname :: binary()
+   qname :: binary(),
+   %% if false, no queue will be setup, but an amqp channel is available for
+   %% non consuming tasks
+   setup_queue :: false
 }).
 
 -type state():: #state{}.
@@ -68,6 +71,7 @@
    init/1, terminate/2, code_change/3,
    handle_call/3, handle_cast/2, handle_info/2
    , start_link/2, start_monitor/2, stop/1, handle_ack/2, handle_ack_multiple/2]).
+-export([delete_queue/2]).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%% BEHAVIOUR DEFINITION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -95,6 +99,9 @@
 stop(Server) ->
    Server ! stop.
 
+delete_queue(Server, Queue) ->
+   Server ! {unbind_delete_queue, Queue}.
+
 start_link(Callback, Config) ->
    gen_server:start_link(?MODULE, [Callback, Config], []).
 
@@ -111,6 +118,7 @@ start_monitor(Callback, Config) ->
 init([Callback, Config]) ->
    process_flag(trap_exit, true),
    Confirm = proplists:get_value(confirm, Config, true),
+   SetupQ = proplists:get_value(setup_queue, Config, true),
    {Callback1, CBState} =
    case is_pid(Callback) of
       true  -> erlang:monitor(process, Callback), {Callback, undefined};
@@ -118,7 +126,7 @@ init([Callback, Config]) ->
    end,
    erlang:send_after(0, self(), connect),
    {ok, #state{config = Config, amqp_config = carrot_connect_options:parse(Config),
-      callback = Callback1, callback_state = CBState, confirm = Confirm}}.
+      callback = Callback1, callback_state = CBState, confirm = Confirm, setup_queue = SetupQ}}.
 
 -spec handle_cast(term(), state()) -> {noreply, state()}.
 handle_cast(Msg, State) ->
@@ -137,10 +145,11 @@ handle_info(connect, State) ->
    end,
    {noreply, State1};
 
-handle_info(unbind_delete_queue, State = #state{channel = Channel, qname = Queue}) ->
-   Delete = #'queue.delete'{queue = Queue},
-   #'queue.delete_ok'{} = amqp_channel:call(Channel, Delete),
-   lager:warning("Queue ~p deleted",[Queue]),
+handle_info({unbind_delete_queue, Queue}, State = #state{}) ->
+   do_delete_queue(Queue, State),
+   {noreply, State};
+handle_info(unbind_delete_queue, State = #state{qname = Queue}) ->
+   do_delete_queue(Queue, State),
    {noreply, State};
 
 handle_info(stop, State=#state{}) ->
@@ -358,6 +367,13 @@ next_tag(State = #state{internal_tag = ITag}) when ITag > ?MAX_TAG ->
 next_tag(State = #state{internal_tag = ITag}) ->
    {ITag+1, State#state{internal_tag = ITag+1}}.
 
+
+do_delete_queue(Queue, #state{channel = Channel}) ->
+   Delete = #'queue.delete'{queue = Queue},
+   case amqp_channel:call(Channel, Delete) of
+      #'queue.delete_ok'{} -> lager:notice("Queue ~p deleted",[Queue]);
+      Other -> lager:warning("Queue delete not ok: ~p",[Other])
+   end.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% MQ connection functions.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

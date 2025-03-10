@@ -120,7 +120,7 @@ init([Callback, Config]) ->
    Confirm = proplists:get_value(confirm, Config, true),
    SetupQ = proplists:get_value(setup_queue, Config, true),
    {Callback1, CBState} =
-   case is_pid(Callback) of
+   case is_pid(Callback) orelse (whereis(Callback) /= undefined) of
       true  -> erlang:monitor(process, Callback), {Callback, undefined};
       false -> {ok, CallbackState} = Callback:init(), {Callback, CallbackState}
    end,
@@ -134,13 +134,17 @@ handle_cast(Msg, State) ->
    {noreply, State}.
 
 -spec handle_info(term(), state()) -> {noreply, state()}.
-handle_info(connect, State) ->
+handle_info(connect, State = #state{setup_queue = DoSetup}) ->
    NewState = start_connection(State),
    State1 =
    case NewState#state.available of
       true ->
-         QName = carrot_amqp:setup(NewState#state.channel, State#state.config, State#state.confirm),
-         NewState#state{qname = QName};
+         case DoSetup of
+            true ->
+               QName = carrot_amqp:setup(NewState#state.channel, State#state.config, State#state.confirm),
+               NewState#state{qname = QName};
+            false -> NewState
+         end;
       false -> NewState
    end,
    {noreply, State1};
@@ -397,7 +401,7 @@ start_connection(State = #state{amqp_config = _Config, callback = _CB}) ->
             end;
          E ->
             lager:warning("Error starting connection: ~p",[E]),
-            erlang:send_after(100, self(), connect),
+            erlang:send_after(300, self(), connect),
             State#state{available = false}
       end,
    NewState.

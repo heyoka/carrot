@@ -372,10 +372,10 @@ next_tag(State = #state{internal_tag = ITag}) ->
    {ITag+1, State#state{internal_tag = ITag+1}}.
 
 
-do_delete_queue(Queue, #state{channel = Channel}) ->
+do_delete_queue(Queue, #state{channel = Channel, amqp_config = #amqp_params_network{virtual_host = VHost}}) ->
    Delete = #'queue.delete'{queue = Queue},
    case amqp_channel:call(Channel, Delete) of
-      #'queue.delete_ok'{} -> lager:notice("Queue ~p deleted",[Queue]);
+      #'queue.delete_ok'{} -> lager:notice("Queue ~p deleted on vhost ~p",[Queue, VHost]);
       Other -> lager:warning("Queue delete not ok: ~p",[Other])
    end.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

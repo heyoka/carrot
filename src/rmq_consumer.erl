@@ -83,7 +83,8 @@
 
 %%% handle a newly arrived amqp message
 -callback process(Event :: { #'basic.deliver'{}, #'amqp_msg'{} }, ProcessorState :: term()) ->
-   {ok, NewProcessorState} | {ok, noack, NewProcessorState} | {error, Reason :: term(), NewProcessorState}.
+   {ok, NewProcessorState :: term()} | {ok, noack, NewProcessorState :: term()}
+   | {error, Reason :: term(), NewProcessorState :: term()}.
 
 %%% handle termination of the process
 -callback terminate(TReason :: term(), ProcessorState :: term()) ->

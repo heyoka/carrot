@@ -80,7 +80,7 @@ init([Queue, Config]) ->
   }}.
 
 -spec handle_cast(term(), state()) -> {noreply, state()}.
-handle_cast({deliver, Exchange, Key, Payload, Args} = M, State = #state{channel = Ch}) ->
+handle_cast({deliver, Exchange, Key, Payload, Args}, State = #state{channel = Ch}) ->
   Avail = is_pid(Ch) andalso erlang:is_process_alive(Ch),
   NewState = deliver({Exchange, Key, Payload, Args}, 1, State#state{available = Avail}),
   {noreply, NewState};
@@ -122,7 +122,7 @@ handle_info({'EXIT', MQPid, Reason}, State=#state{channel = MQPid, reconnector =
   }};
 
 
-handle_info({deliver, Exchange, Key, Payload, Args} = M, State = #state{channel = Ch}) ->
+handle_info({deliver, Exchange, Key, Payload, Args}, State = #state{channel = Ch}) ->
   Avail = is_pid(Ch) andalso erlang:is_process_alive(Ch),
 %%  logger:notice("deliver: ~p when avail: ~p",[M, Avail]),
   NewState = deliver({Exchange, Key, Payload, Args}, 1, State#state{available = Avail}),
@@ -178,7 +178,7 @@ handle_info(#'connection.unblocked'{}, State = #state{deq_timer_ref = T}) ->
   catch (erlang:cancel_timer(T)),
   {noreply, State#state{available = true}};
 
-handle_info(report_pendinglist_length, #state{pending_acks = P} = State) ->
+handle_info(report_pendinglist_length, #state{pending_acks = _P} = State) ->
   {noreply, State};
 handle_info(stop, State) ->
   {stop, normal, State};

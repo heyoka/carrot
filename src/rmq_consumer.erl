@@ -384,7 +384,7 @@ do_delete_queue(Queue, #state{channel = Channel, amqp_config = #amqp_params_netw
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-start_connection(State = #state{amqp_config = _Config, callback = _CB}) ->
+start_connection(State = #state{amqp_config = Config, callback = _CB}) ->
 %%   lager:info("amqp_params: ~p",[lager:pr(Config, ?MODULE)] ),
    Connection = maybe_start_connection(State),
    NewState =
@@ -401,7 +401,8 @@ start_connection(State = #state{amqp_config = _Config, callback = _CB}) ->
                   State#state{available = false}
             end;
          E ->
-            lager:warning("Error starting connection: ~p",[E]),
+            lager:warning("Error starting connection with config ~p: ~p",
+               [Config#amqp_params_network{password = <<>>}, E]),
             erlang:send_after(300, self(), connect),
             State#state{available = false}
       end,
